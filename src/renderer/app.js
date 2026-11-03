@@ -1006,6 +1006,10 @@ function wire() {
   $('#pause-all').addEventListener('click', () => window.hshop.pauseAll());
   $('#resume-all').addEventListener('click', () => window.hshop.resumeAll());
   $('#clear-completed').addEventListener('click', () => window.hshop.clearCompleted());
+  $('#open-dl-folder')?.addEventListener('click', async () => {
+    const res = await window.hshop.openDownloadsFolder();
+    if (res && res.error) toast(`No se pudo abrir la carpeta: ${res.error}`, 'err');
+  });
   $('#check-updates').addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
     const restore = btn.textContent;

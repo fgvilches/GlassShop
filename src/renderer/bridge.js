@@ -75,6 +75,7 @@
 
     // app
     openExternal: (url) => call('app_open_external', { url }),
+    openDownloadsFolder: () => call('app_open_downloads'),
     pickDir: () => call('app_pick_dir'),
     platform: () => call('app_platform'),
     minimize: () => call('window_minimize'),

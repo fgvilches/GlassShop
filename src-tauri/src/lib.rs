@@ -199,6 +199,7 @@ pub fn run() {
             appupdate::update_install,
             appupdate::update_restart,
             commands::app_open_external,
+            commands::app_open_downloads,
             commands::app_pick_dir,
             commands::app_platform,
             commands::window_minimize,

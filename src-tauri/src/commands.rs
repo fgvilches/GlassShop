@@ -224,6 +224,20 @@ pub fn app_open_external(url: String) -> Value {
 }
 
 #[tauri::command]
+pub fn app_open_downloads(manager: State<'_, Manager>) -> Value {
+    let dir = manager.settings().download_dir;
+    // the folder may not exist yet on a fresh install
+    let _ = std::fs::create_dir_all(&dir);
+    if !std::path::Path::new(&dir).is_dir() {
+        return fail("la carpeta de descargas no existe");
+    }
+    match tauri_plugin_opener::open_path(&dir, None::<&str>) {
+        Ok(()) => json!({ "ok": true, "path": dir }),
+        Err(e) => fail(e),
+    }
+}
+
+#[tauri::command]
 pub async fn app_pick_dir(app: AppHandle) -> Value {
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog().file().pick_folder(move |folder| {
