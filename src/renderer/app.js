@@ -455,7 +455,7 @@ async function startDownloadFromSheet() {
   };
 
   // what actually queues the title, once base-first has had its say
-  const run = async () => {
+  async function run() {
     btn.disabled = true;
     btn.textContent = 'Verificando…';
     try {
@@ -470,14 +470,18 @@ async function startDownloadFromSheet() {
       toast(`Añadido a descargas: ${t.name}`, 'ok');
       closeSheet();
       show('downloads');
-      // if hShop publishes an update or DLC for this game, offer them
+      // when a game has updates/DLC available, offer them even if the user said
+      // "no" the first time: stash the product code so the button can re-open it
+      state.pendingExtrasCode = pc;
+      state.pendingExtrasName = t.name;
+      // and show the dialog immediately the first time
       maybeExtras(pc, t.name);
     } catch (e) {
       toast(`No se pudo iniciar: ${e.message || e}`, 'err');
     } finally {
       restore();
     }
-  };
+  }
 
   const detail = state.sheet.detail || {};
   const pc = detail.productCode || t.productCode || null;
@@ -659,6 +663,8 @@ function closeExtras() {
   $('#extras-scrim').classList.add('hidden');
   $('#extras-sheet').classList.add('hidden');
   state.pendingExtras = null;
+  // keep pendingExtrasCode / pendingExtrasName so "Buscar actualizaciones"
+  // can re-offer the dialog after the user said "no" the first time
 }
 
 async function enqueueExtras() {
@@ -690,6 +696,11 @@ async function enqueueExtras() {
     }
   }
   if (ok) toast(`${ok} agregado${ok === 1 ? '' : 's'} a descargas`, 'ok');
+  // clear the remembered game only if the user actually picked something
+  if (picks.length && ok) {
+    state.pendingExtrasCode = null;
+    state.pendingExtrasName = null;
+  }
 }
 
 // ── base-first (update sin juego base) ───────────────────────────────────────
@@ -1010,6 +1021,7 @@ function wire() {
     const res = await window.hshop.openDownloadsFolder();
     if (res && res.error) toast(`No se pudo abrir la carpeta: ${res.error}`, 'err');
   });
+  // "no" the first time: re-offer updates/DLC for the last downloaded game
   $('#check-updates').addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
     const restore = btn.textContent;
@@ -1025,6 +1037,12 @@ function wire() {
           : 'No hay actualizaciones nuevas para tu biblioteca',
         'ok',
       );
+
+      // if the user declined the extras dialog when downloading a game,
+      // re-offer it now (the panel above already shows the available updates)
+      if (state.pendingExtrasCode && state.pendingExtrasName) {
+        await maybeExtras(state.pendingExtrasCode, state.pendingExtrasName);
+      }
     } catch (e) {
       toast(`No se pudieron buscar actualizaciones: ${e.message || e}`, 'err');
     } finally {
@@ -1034,6 +1052,7 @@ function wire() {
   });
 
   // extras modal (updates + DLC del mismo juego)
+  $('#extras-close')?.addEventListener('click', closeExtras);
   $('#extras-close')?.addEventListener('click', closeExtras);
   $('#extras-skip')?.addEventListener('click', closeExtras);
   $('#extras-scrim')?.addEventListener('click', closeExtras);
