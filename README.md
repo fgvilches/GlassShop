@@ -64,23 +64,16 @@ DESIGN.md           design tokens and glass recipe
 
 hShop gates downloads behind Cloudflare Turnstile. GlassShop **does not bypass it**. Pressing *Download* opens a real webview with the title page off-screen; Turnstile runs its normal checks, the page then renders the *Direct Download* link, and that URL is handed back to Rust through an intercepted navigation (`/__hsg_solved?u=…`). If the silent challenge fails, the window is brought on screen after a few seconds so the widget can be tapped. Resolved links are cached per title for 30 minutes.
 
-## Continuous builds
-
-`.github/workflows/build.yml` builds macOS (universal), Windows and Linux artifacts on every `v*` tag or manual dispatch.
-
-## macOS signing
+## macOS First run
 
 Builds are **not code-signed with a Developer ID and not notarized** — there is no certificate in the build. The binary only carries the linker's ad-hoc signature, which is why macOS shows the "unidentified developer" warning when the app arrives from a download.
 
-Until a Developer ID is set up, recipients can open it with either:
+Until a Developer ID is set up, executing this code on terminal.app:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/GlassShop.app
 ```
 
-or by right-clicking the app → **Open** → **Open** (once; afterwards it launches normally).
-
-To ship properly signed and notarized builds, set `bundle > macOS > signingIdentity` in `src-tauri/tauri.conf.json` and provide `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` and `APPLE_TEAM_ID` as CI secrets — Tauri then signs, notarizes and staples automatically.
 
 ## License
 
