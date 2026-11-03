@@ -604,15 +604,17 @@ async function startUpdateDownload(u) {
 }
 
 async function enqueueUpdate(u) {
+  // `titleId` is the 16-hex Title ID; downloads resolve from the page id
+  const pageId = String(u.pageId || u.titleId);
   const btn = document.querySelector(`[data-id="${u.titleId}"]`);
   if (btn) { btn.disabled = true; btn.textContent = 'Resolviendo…'; }
   try {
-    const links = await window.hshop.resolveDownload(u.titleId);
+    const links = await window.hshop.resolveDownload(pageId);
     if (!links || links.error || !links.direct) {
       throw new Error((links && links.error) || 'no se obtuvo el enlace');
     }
     const res = await window.hshop.addDownload({
-      id: u.titleId, name: u.name, filename: `${u.name}.cia`,
+      id: pageId, name: u.name, filename: `${u.name}.cia`,
       url: links.direct,
     });
     if (res && res.error) throw new Error(res.error);

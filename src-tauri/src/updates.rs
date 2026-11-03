@@ -124,6 +124,8 @@ pub struct UpdateInfo {
     pub current_version: Option<String>,
     pub available_version: String,
     pub url: String,
+    /// hShop page id of the update entry — what downloads are resolved from
+    pub page_id: String,
     pub update_title_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub product_code: Option<String>,
@@ -380,6 +382,7 @@ impl Checker {
                         current_version: Some(current.raw),
                         available_version: published.raw,
                         url: entry_page_url(entry),
+                        page_id: row.id.clone(),
                         update_title_id: detail.title_id.clone().unwrap_or(row.id.clone()),
                         product_code: Some(update_code),
                     })
@@ -393,6 +396,7 @@ impl Checker {
                 current_version: None,
                 available_version: published.raw,
                 url: entry_page_url(entry),
+                page_id: row.id.clone(),
                 update_title_id: detail.title_id.clone().unwrap_or(row.id.clone()),
                 product_code: Some(update_code),
             }),
