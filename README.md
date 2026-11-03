@@ -20,7 +20,7 @@ Built with **Tauri 2 + Rust**. No Electron, no bundled browser: the UI is a tran
 - **Live speed / ETA** and an optional bandwidth cap
 - **Update detection** — compares the published version with what you downloaded, and warns when an update is being fetched without its base game (offers base-first)
 - **Persistent state** — the queue survives restarts; interrupted transfers resume from the `.part` file
-- **Native shell** — macOS menu bar, keyboard shortcuts (`⌘F` search, `⌘J` downloads), glass design system from `DESIGN.md`
+- **Native shell** — macOS menu bar, keyboard shortcuts (`⌘F` search, `⌘J` downloads), glass design system applied across every surface
 
 ## Requirements
 
@@ -57,7 +57,6 @@ src/renderer/
   styles.css        Liquid Glass design system
   bridge.js         maps `window.hshop` onto Tauri IPC
 assets/             logo source and icon master
-DESIGN.md           design tokens and glass recipe
 ```
 
 ## How downloads are resolved
