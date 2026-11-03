@@ -1,0 +1,17 @@
+{
+  "name": "glassshop",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Native Liquid Glass download manager for hShop — macOS, Windows and Linux.",
+  "license": "MIT",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:live": "cargo test --manifest-path src-tauri/Cargo.toml -- --ignored --nocapture"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4"
+  }
+}

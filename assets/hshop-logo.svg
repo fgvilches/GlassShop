@@ -1,0 +1,33 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <linearGradient id="horseGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#18FF00;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#00E5FF;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <g transform="translate(35,41)">
+    <!-- Horse head silhouette -->
+    <path d="M-18,-12 C-18,-18 -14,-22 -8,-22 C-2,-22 2,-20 6,-16 C10,-12 12,-8 12,-4 C12,0 10,4 6,6 C2,8 -2,8 -6,6 C-10,4 -14,0 -16,-4 C-18,-8 -18,-12 -18,-12 Z" 
+          fill="url(#horseGrad)" 
+          filter="url(#glow)"
+          stroke="#FFFFFF40" 
+          stroke-width="1"/>
+    <!-- Eye -->
+    <circle cx="-8" cy="-8" r="3" fill="#FFFFFFCC"/>
+    <circle cx="-8" cy="-8" r="1.5" fill="#0B1220"/>
+    <!-- Mane -->
+    <path d="M-10,-20 C-8,-24 -6,-26 -4,-24 C-2,-22 -4,-20 -6,-18 C-8,-16 -10,-16 -10,-20 Z" 
+          fill="#00E5FF" 
+          opacity="0.8"/>
+    <!-- Ear -->
+    <path d="M-14,-20 C-16,-22 -16,-24 -14,-24 C-12,-24 -12,-22 -14,-20 Z" 
+          fill="url(#horseGrad)"/>
+  </g>
+</svg>

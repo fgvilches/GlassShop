@@ -1,0 +1,579 @@
+// ═══════════════════════════════════════════════════════════════════════════════
+// GlassShop — renderer logic. No frameworks; hand-rolled state + tiny helpers.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const $ = (sel, root) => (root || document).querySelector(sel);
+const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+
+const state = {
+  view: 'home',
+  categories: [],
+  currentCategory: null,
+  currentSub: null,
+  titles: [],
+  titlesTotal: null,
+  titlesOffset: 0,
+  sort: '', direction: 'desc',
+  search: { q: '', qt: 'Text', results: [], total: null, offset: 0 },
+  sheet: { open: false, title: null },
+  pendingBaseFirst: null,
+  updates: { available: [] },
+  downloads: { items: [], settings: {}, active: 0 },
+};
+
+// ── formatting helpers ─────────────────────────────────────────────────────────
+function fmtBytes(n) {
+  if (n == null || isNaN(n)) return '—';
+  const u = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let i = 0; let v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2)}\u00A0${u[i]}`;
+}
+function fmtSpeed(bps) { return bps > 0 ? `${fmtBytes(bps)}/s` : '—'; }
+function fmtEta(s) {
+  if (!s || s <= 0) return '—';
+  if (s < 60) return `${Math.ceil(s)}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${Math.floor(s % 60)}s`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+const div = document.createElement('div');
+function esc(s) {
+  div.textContent = String(s == null ? '' : s);
+  return div.innerHTML;
+}
+function legitBadge(type) {
+  const t = (type || '').toLowerCase();
+  if (t.includes('legit')) return '<span class="badge b-legit">Legit</span>';
+  if (t.includes('pirate')) return '<span class="badge b-pirate">Pirate Legit</span>';
+  return '';
+}
+
+// ── toasts ────────────────────────────────────────────────────────────────────
+function toast(msg, kind = '') {
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.textContent = msg;
+  $('#toasts').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 300ms'; setTimeout(() => el.remove(), 320); }, 4200);
+}
+
+// ── navigation ────────────────────────────────────────────────────────────────
+function show(view) {
+  state.view = view;
+  for (const v of ['home', 'titles', 'search', 'downloads', 'settings']) {
+    $(`#view-${v}`).classList.toggle('hidden', v !== (view === 'titles' ? 'home' : view) && !(view === 'titles' && v === 'titles'));
+  }
+  // simpler: hide all, show target
+  $$('.view').forEach(v => v.classList.add('hidden'));
+  const target = view === 'titles' ? '#view-titles' : `#view-${view}`;
+  $(target).classList.remove('hidden');
+  $$('#nav .sidebar-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+
+  if (view === 'downloads') renderDownloads();
+  if (view === 'settings') renderSettings();
+  if (view === 'search') {
+    const input = $('#search-input');
+    if (input && !input.value) input.focus();
+  }
+}
+
+// ── categories sidebar ────────────────────────────────────────────────────────
+async function loadCategories() {
+  const cats = await window.hshop.categories();
+  state.categories = cats;
+  const nav = $('#cat-nav');
+  nav.innerHTML = '';
+  for (const c of cats) {
+    const b = document.createElement('button');
+    b.className = 'sidebar-item';
+    b.innerHTML = `<span class="cat-dot"></span>${esc(c.name)}`;
+    b.title = c.description || '';
+    b.addEventListener('click', () => openCategory(c));
+    nav.appendChild(b);
+  }
+}
+
+// ── home: subcategory cards for current category (or category picker) ─────────
+async function openCategory(c) {
+  state.currentCategory = c;
+  state.currentSub = null;
+  $('#home-title').textContent = c.name;
+  $('#home-sub').textContent = c.description || '';
+  show('home');
+  const grid = $('#subcat-grid');
+  grid.innerHTML = '<div class="dl-empty">Cargando…</div>';
+  try {
+    const subs = await window.hshop.subcategories(c.id);
+    if (!subs.length) { grid.innerHTML = '<div class="dl-empty">Sin subcategorías.</div>'; return; }
+    grid.innerHTML = '';
+    for (const s of subs) {
+      const el = document.createElement('button');
+      el.className = 'subcat-card glass';
+      el.innerHTML = `
+        <h3>${esc(s.name)}</h3>
+        <p class="desc">${esc(s.description)}</p>
+        <div class="subcat-stats">
+          <span class="badge b-size">${esc(s.sizeText || '—')}</span>
+          <span class="badge b-dl">${s.titles} títulos</span>
+          <span class="badge b-legit">${s.official} oficiales</span>
+          <span class="badge b-id">${fmtInt(s.downloads)} descargas</span>
+        </div>`;
+      el.addEventListener('click', () => openSubcategory(c, s));
+      grid.appendChild(el);
+    }
+  } catch (e) {
+    grid.innerHTML = `<div class="dl-empty">Error: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+function fmtInt(n) { return (n || 0).toLocaleString('es'); }
+
+// ── titles grid ────────────────────────────────────────────────────────────────
+async function openSubcategory(cat, sub) {
+  state.currentSub = sub;
+  state.titles = []; state.titlesOffset = 0; state.titlesTotal = null;
+  $('#titles-title').textContent = `${cat.name} › ${sub.name}`;
+  $('#titles-sub').textContent = sub.description || '';
+  show('titles');
+  $('#titles-grid').innerHTML = '<div class="dl-empty">Cargando…</div>';
+  await loadTitlesPage();
+}
+
+async function loadTitlesPage() {
+  const cat = state.currentCategory, sub = state.currentSub;
+  try {
+    const res = await window.hshop.titles({
+      category: cat.id, subcategory: sub.id,
+      count: 50, offset: state.titlesOffset,
+      sortBy: state.sort || undefined, direction: state.sort ? state.direction : undefined,
+    });
+    state.titles.push(...res.titles);
+    if (state.titlesTotal == null) state.titlesTotal = res.total;
+    state.titlesOffset += res.titles.length;
+    renderTitles();
+  } catch (e) {
+    $('#titles-grid').innerHTML = `<div class="dl-empty">Error: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+function renderTitles() {
+  const grid = $('#titles-grid');
+  if (!state.titles.length) { grid.innerHTML = '<div class="dl-empty">Sin resultados.</div>'; $('#load-more-wrap').classList.add('hidden'); return; }
+  if (state.titlesOffset === state.titles.length) grid.innerHTML = ''; // full rerender
+  else {
+    // append only new rows on "load more"
+  }
+  const startIdx = grid.children.length && state.titlesOffset > 50 ? state.titles.length - (state.titlesOffset - (state.titlesTotal ? 0 : 0)) : 0;
+  // simplest correct approach: rerender all (50–200 rows are cheap)
+  grid.innerHTML = '';
+  for (const t of state.titles) grid.appendChild(titleCard(t));
+  const more = state.titlesTotal == null || state.titles.length < state.titlesTotal;
+  $('#load-more-wrap').classList.toggle('hidden', !more);
+}
+
+function titleCard(t) {
+  const el = document.createElement('button');
+  el.className = 'title-card glass';
+  el.innerHTML = `
+    <h3>${esc(t.name)}</h3>
+    <p class="tc-path">${esc((t.categoryPath || '').replace(/^content in /i, ''))}</p>
+    <div class="tc-badges">
+      ${legitBadge(t.contentType)}
+      ${t.sizeText ? `<span class="badge b-size">${esc(t.sizeText)}</span>` : ''}
+      ${t.titleId ? `<span class="badge b-tid">${esc(t.titleId)}</span>` : ''}
+      ${t.productCode ? `<span class="badge b-prod">${esc(t.productCode)}</span>` : ''}
+      <span class="badge b-id">#${esc(t.id)}</span>
+    </div>
+    <div class="tc-foot">
+      <span class="badge b-dl">Descargar ↓</span>
+    </div>`;
+  el.addEventListener('click', () => openSheet(t));
+  return el;
+}
+
+// ── search ────────────────────────────────────────────────────────────────────
+async function doSearch(more = false) {
+  const q = $('#search-input').value.trim();
+  if (!q) { toast('Escribe algo para buscar.', 'err'); return; }
+  state.search.q = q; state.search.qt = $('#search-qt').value;
+  if (!more) { state.search.results = []; state.search.offset = 0; state.search.total = null; }
+  $('#search-grid').innerHTML = state.search.results.length ? '' : '<div class="dl-empty">Buscando…</div>';
+  try {
+    const res = await window.hshop.search({ query: q, qt: state.search.qt, count: 50, offset: state.search.offset });
+    state.search.results.push(...res.titles);
+    state.search.total = res.total;
+    state.search.offset += res.titles.length;
+    const g = $('#search-grid');
+    g.innerHTML = '';
+    for (const t of state.search.results) g.appendChild(titleCard(t));
+    $('#search-summary').textContent = `${state.search.results.length} de ${state.search.total ?? '?'} resultados para “${q}”`;
+    $('#search-summary').classList.remove('hidden');
+    $('#search-more-wrap').classList.toggle('hidden', state.search.total == null || state.search.results.length >= state.search.total);
+  } catch (e) {
+    $('#search-grid').innerHTML = `<div class="dl-empty">Error: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+// ── detail sheet ──────────────────────────────────────────────────────────────
+async function openSheet(t) {
+  state.sheet.open = true; state.sheet.title = t;
+  $('#sheet-crumb').textContent = (t.categoryPath || '').replace(/^content in /i, '') || `Título #${t.id}`;
+  $('#sheet-title').textContent = t.name;
+  $('#sheet-meta').innerHTML = `
+    <dt>Tamaño</dt><dd>${esc(t.sizeText || '—')}</dd>
+    <dt>Title ID</dt><dd>${esc(t.titleId || '—')}</dd>
+    <dt>Cód. producto</dt><dd>${esc(t.productCode || '—')}</dd>
+    <dt>Tipo</dt><dd>${esc(t.contentType || '—')}</dd>`;
+  $('#sheet-desc').textContent = '';
+  $('#sheet-hash').textContent = '';
+  $('#sheet-scrim').classList.remove('hidden');
+  $('#sheet').classList.remove('hidden');
+  // fetch full detail async
+  try {
+    const d = await window.hshop.titleDetail(t.id);
+    state.sheet.detail = d;
+    $('#sheet-meta').innerHTML = `
+      <dt>Tamaño</dt><dd>${esc(d.sizeText || '—')}</dd>
+      <dt>Title ID</dt><dd>${esc(d.titleIdText || d.titleId || '—')}</dd>
+      <dt>Cód. producto</dt><dd>${esc(d.productCode || '—')}</dd>
+      <dt>Tipo</dt><dd>${esc(d.contentType || '—')}</dd>
+      <dt>Añadido</dt><dd>${esc(d.added || '—')}</dd>
+      <dt>Actualizado</dt><dd>${esc(d.updated || '—')}</dd>
+      <dt>Descargas</dt><dd>${esc(d.downloads || '—')}</dd>`;
+    $('#sheet-desc').textContent = d.description || 'Sin descripción disponible.';
+    $('#sheet-hash').textContent = d.sha256 ? `SHA-256: ${d.sha256}` : '';
+  } catch { /* keep partial */ }
+}
+
+function closeSheet() {
+  state.sheet.open = false;
+  $('#sheet-scrim').classList.add('hidden');
+  $('#sheet').classList.add('hidden');
+}
+
+// ── downloads ─────────────────────────────────────────────────────────────────
+function downloadItemInfoFromSheet() {
+  const t = state.sheet.title, d = state.sheet.detail || {};
+  return {
+    id: t.id, name: t.name,
+    filename: `${t.name}.cia`,
+    sizeBytes: d.sizeBytes || t.sizeBytes || null,
+    sha256: d.sha256 || null,
+    url: null,
+  };
+}
+
+async function startDownloadFromSheet() {
+  const t = state.sheet.title;
+  if (!t) return;
+  const btn = $('#sheet-download');
+  btn.disabled = true; btn.textContent = 'Verificando…';
+  try {
+    // 1. resolve the Turnstile-gated direct link (may show a verification window)
+    const links = await window.hshop.resolveDownload(t.id);
+    if (!links || links.error || !links.direct) {
+      throw new Error((links && links.error) || 'no se obtuvo el enlace de descarga');
+    }
+    // 2. enqueue
+    const info = downloadItemInfoFromSheet();
+    info.url = links.direct;
+    const res = await window.hshop.addDownload(info);
+    if (res && res.error) throw new Error(res.error);
+    toast(`Añadido a descargas: ${t.name}`, 'ok');
+    closeSheet();
+    show('downloads');
+  } catch (e) {
+    toast(`No se pudo iniciar: ${e.message || e}`, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<svg viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="M8 1a1 1 0 0 1 1 1v6.586l2.293-2.293a1 1 0 1 1 1.414 1.414l-4 4a1 1 0 0 1-1.414 0l-4-4a1 1 0 1 1 1.414-1.414L7 8.586V2a1 1 0 0 1 1-1M2 13h12v2H2z"/></svg> Descargar`;
+  }
+}
+
+// ── downloads view ───────────────────────────────────────────────────────────
+function renderDownloads() {
+  const { items, settings } = state.downloads;
+  const list = $('#dl-list');
+  const active = items.filter(i => i.status === 'downloading' || i.status === 'queued').length;
+  $('#dl-badge').classList.toggle('hidden', active === 0);
+  $('#dl-badge').textContent = active;
+  $('#dl-summary').textContent = active
+    ? `${active} en curso · ${items.filter(i => i.status === 'downloading').length} descargando`
+    : (items.length ? `${items.length} en la lista` : 'Sin descargas activas.');
+
+  if (!items.length) { list.innerHTML = '<div class="dl-empty">Aún no hay descargas.<br>Explora el catálogo y pulsa “Descargar”.</div>'; return; }
+  list.innerHTML = '';
+  for (const it of items) list.appendChild(dlRow(it));
+}
+
+function dlRow(it) {
+  const el = document.createElement('div');
+  el.className = 'dl-row glass';
+  const pct = it.sizeBytes ? Math.min(100, (it.received / it.sizeBytes) * 100) : (it.status === 'completed' ? 100 : 0);
+  const actions = [];
+  if (it.status === 'downloading' || it.status === 'queued') actions.push(`<button class="glass-btn small" data-act="pause">Pausar</button>`);
+  if (it.status === 'paused' || it.status === 'failed' || it.status === 'cancelled') actions.push(`<button class="glass-btn small" data-act="resume">Reanudar</button>`);
+  if (it.status === 'failed') actions.push(`<button class="glass-btn small" data-act="retry">Reintentar</button>`);
+  if (it.status === 'completed') {
+    actions.push(`<button class="glass-btn small" data-act="reveal">Mostrar</button>`);
+    if (it.verified === false) actions.push(`<span class="badge b-pirate">Hash no coincide</span>`);
+    else if (it.verified === true) actions.push(`<span class="badge b-legit">Verificado ✓</span>`);
+  }
+  actions.push(`<button class="glass-btn small danger" data-act="remove">✕</button>`);
+
+  el.innerHTML = `
+    <div class="dl-info">
+      <p class="dl-name" title="${esc(it.name)}">${esc(it.name)}</p>
+      <p class="dl-meta">
+        <span class="dl-status st-${it.status}">${statusLabel(it.status)}</span>
+        <span>${fmtBytes(it.received)}${it.sizeBytes ? ` / ${fmtBytes(it.sizeBytes)}` : ''}</span>
+        ${it.status === 'downloading' ? `<span>${fmtSpeed(it.speed)}</span><span>ETA ${fmtEta(it.eta)}</span>` : ''}
+        ${it.error ? `<span style="color: var(--c-danger)">${esc(it.error)}</span>` : ''}
+      </p>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill ${it.status === 'completed' ? 'done' : it.status === 'failed' ? 'err' : ''} ${(!it.sizeBytes && it.status === 'downloading') ? 'indet' : ''}"
+           style="width: ${pct}%"></div>
+    </div>
+    <div class="dl-actions">${actions.join('')}</div>`;
+
+  el.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-act]');
+    if (!b) return;
+    const act = b.dataset.act;
+    if (act === 'pause') window.hshop.pause(it.id);
+    if (act === 'resume') window.hshop.resume(it.id);
+    if (act === 'retry') window.hshop.retry(it.id);
+    if (act === 'reveal') window.hshop.reveal(it.id);
+    if (act === 'remove') window.hshop.remove(it.id);
+  });
+  return el;
+}
+
+function statusLabel(s) {
+  return { queued: 'En cola', downloading: 'Descargando', paused: 'Pausada', completed: 'Completada', failed: 'Error', cancelled: 'Cancelada' }[s] || s;
+}
+
+// ── actualizaciones ──────────────────────────────────────────────────────────
+function renderUpdates() {
+  const panel = $('#updates-panel');
+  const list = $('#updates-list');
+  const { available } = state.updates;
+  panel.classList.toggle('hidden', available.length === 0);
+  if (!available.length) return;
+  list.innerHTML = '';
+  for (const u of available) {
+    const el = document.createElement('div');
+    el.className = 'dl-row glass';
+    el.innerHTML = `
+      <div class="dl-info">
+        <p class="dl-name">${esc(u.name)}</p>
+        <p class="dl-meta">
+          <span>${esc(u.currentVersion)} → ${esc(u.availableVersion)}</span>
+        </p>
+      </div>
+      <div class="dl-actions">
+        <button class="glass-btn small" data-act="enqueue-update" data-id="${esc(u.titleId)}">Agregar a la cola</button>
+      </div>`;
+    el.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-act]');
+      if (!b) return;
+      if (b.dataset.act === 'enqueue-update') startUpdateDownload(u);
+    });
+    list.appendChild(el);
+  }
+}
+
+async function startUpdateDownload(u) {
+  const baseFirst = await window.hshop.updatesBaseFirst({
+    id: u.titleId, name: u.name, productCode: u.productCode || null,
+  });
+  if (baseFirst.base) {
+    // el juego base ya está instalado: añadir solo el update
+    return enqueueUpdate(u);
+  }
+  // base no instalada: ofrecer base primero
+  state.pendingBaseFirst = { base: baseFirst.base, update: u };
+  $('#basefirst-title').textContent = `Actualización para ${esc(u.name)}`;
+  $('#basefirst-msg').textContent =
+    `Parece que aún no tienes instalado el juego base “${esc(baseFirst.base.name)}”. ¿Descargas primero el juego base y luego este update?`;
+  $('#basefirst-scrim').classList.remove('hidden');
+  $('#basefirst-sheet').classList.remove('hidden');
+}
+
+async function enqueueUpdate(u) {
+  const btn = document.querySelector(`[data-id="${u.titleId}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Resolviendo…'; }
+  try {
+    const links = await window.hshop.resolveDownload(u.titleId);
+    await window.hshop.addDownload({
+      id: u.titleId, name: u.name, filename: `${u.name}.cia`,
+      url: links.direct,
+    });
+    toast(`Añadido a descargas: ${u.name}`, 'ok');
+    await window.hshop.updatesCheck();
+  } catch (e) {
+    toast(`No se pudo agregar: ${e.message || e}`, 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Agregar a la cola'; }
+  }
+}
+
+async function enqueueBaseAndUpdate() {
+  const p = state.pendingBaseFirst;
+  if (!p) return;
+  closeBaseFirst();
+  try {
+    // 1. juego base
+    const baseLinks = await window.hshop.resolveDownload(p.base.titleId);
+    await window.hshop.addDownload({
+      id: p.base.titleId, name: p.base.name, filename: `${p.base.name}.cia`,
+      url: baseLinks.direct,
+    });
+    toast(`Añadido a descargas: ${p.base.name}`, 'ok');
+    // 2. el update
+    await enqueueUpdate(p.update);
+    state.pendingBaseFirst = null;
+  } catch (e) {
+    toast(`No se pudo agregar: ${e.message || e}`, 'err');
+    state.pendingBaseFirst = null;
+  }
+}
+
+function closeBaseFirst() {
+  state.pendingBaseFirst = null;
+  $('#basefirst-scrim').classList.add('hidden');
+  $('#basefirst-sheet').classList.add('hidden');
+}
+
+// ── settings view ─────────────────────────────────────────────────────────────
+function renderSettings() {
+  const s = state.downloads.settings;
+  if (!s || !s.downloadDir) return;
+  $('#dl-dir-label').textContent = s.downloadDir;
+  $('#concurrency').value = s.concurrency || 3;
+  $('#concurrency-val').textContent = s.concurrency || 3;
+  const lim = s.speedLimit || 0;
+  $('#speed-limit').value = Math.min(50, lim ? Math.round(lim / 1048576) : 0);
+  $('#speed-limit-val').textContent = lim ? `${Math.round(lim / 1048576)} MiB/s` : '∞';
+  $('#toggle-verify').textContent = s.autoVerify ? 'Activada ✓' : 'Desactivada';
+}
+
+// ── wiring ─────────────────────────────────────────────────────────────────────
+function wire() {
+  // sidebar navigation
+  $$('#nav .sidebar-item').forEach(b => b.addEventListener('click', () => show(b.dataset.view)));
+  $('#open-site').addEventListener('click', () => window.hshop.openExternal('https://hshop.erista.me/'));
+
+  // titles view
+  $('#crumb-back').addEventListener('click', () => openCategory(state.currentCategory));
+  $('#load-more').addEventListener('click', loadTitlesPage);
+  $('#sort-sel').addEventListener('change', () => {
+    state.sort = $('#sort-sel').value;
+    state.titles = []; state.titlesOffset = 0;
+    if (state.currentSub) loadTitlesPage();
+  });
+  $('#dir-sel').addEventListener('change', () => {
+    state.direction = $('#dir-sel').value;
+    state.titles = []; state.titlesOffset = 0;
+    if (state.currentSub) loadTitlesPage();
+  });
+
+  // search
+  $('#search-form').addEventListener('submit', (ev) => { ev.preventDefault(); doSearch(); });
+  $('#search-more').addEventListener('click', () => doSearch(true));
+
+  // sheet
+  $('#sheet-close').addEventListener('click', closeSheet);
+  $('#sheet-scrim').addEventListener('click', closeSheet);
+  $('#sheet-open-site').addEventListener('click', () => {
+    if (state.sheet.title) window.hshop.openExternal(state.sheet.title.url);
+  });
+  $('#sheet-download').addEventListener('click', startDownloadFromSheet);
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && state.sheet.open) closeSheet();
+  });
+
+  // downloads toolbar
+  $('#pause-all').addEventListener('click', () => window.hshop.pauseAll());
+  $('#resume-all').addEventListener('click', () => window.hshop.resumeAll());
+  $('#clear-completed').addEventListener('click', () => window.hshop.clearCompleted());
+  $('#check-updates').addEventListener('click', async () => {
+    await window.hshop.updatesCheck();
+  });
+
+  // base-first modal
+  $('#basefirst-close').addEventListener('click', closeBaseFirst);
+  $('#basefirst-scrim').addEventListener('click', closeBaseFirst);
+  $('#basefirst-skip').addEventListener('click', async () => {
+    closeBaseFirst();
+    if (state.pendingBaseFirst) { await enqueueUpdate(state.pendingBaseFirst.update); state.pendingBaseFirst = null; }
+  });
+  $('#basefirst-base-first').addEventListener('click', enqueueBaseAndUpdate);
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') { closeSheet(); closeBaseFirst(); }
+  });
+
+  // settings
+  $('#pick-dir').addEventListener('click', async () => {
+    const dir = await ipcPickDir();
+    if (dir) window.hshop.setDownloadSettings({ downloadDir: dir });
+  });
+  $('#concurrency').addEventListener('input', () => {
+    $('#concurrency-val').textContent = $('#concurrency').value;
+    window.hshop.setDownloadSettings({ concurrency: +$('#concurrency').value });
+  });
+  $('#speed-limit').addEventListener('input', () => {
+    const v = +$('#speed-limit').value;
+    $('#speed-limit-val').textContent = v ? `${v} MiB/s` : '∞';
+    window.hshop.setDownloadSettings({ speedLimit: v * 1048576 });
+  });
+  $('#toggle-verify').addEventListener('click', () => {
+    const cur = state.downloads.settings.autoVerify;
+    window.hshop.setDownloadSettings({ autoVerify: !cur });
+    $('#toggle-verify').textContent = !cur ? 'Activada ✓' : 'Desactivada';
+  });
+
+  // live updates from main
+  window.hshop.onDownloadsChanged((snap) => {
+    state.downloads = snap;
+    if (state.view === 'downloads') renderDownloads();
+    else { // update badge only
+      const active = snap.items.filter(i => i.status === 'downloading' || i.status === 'queued').length;
+      $('#dl-badge').classList.toggle('hidden', active === 0);
+      $('#dl-badge').textContent = active;
+    }
+    if (state.view === 'settings') renderSettings();
+  });
+
+  window.hshop.onUpdatesAvailable((payload) => {
+    state.updates.available = payload.updates || [];
+    renderUpdates();
+  });
+
+  window.hshop.onUpdatesBaseFirst((payload) => {
+    startUpdateDownload(payload.update);
+  });
+
+  window.hshop.onNavigate(({ view }) => show(view));
+}
+
+// folder picker via IPC (main shows the native dialog)
+async function ipcPickDir() {
+  return window.hshop.pickDir ? await window.hshop.pickDir() : null;
+}
+
+// ── boot ───────────────────────────────────────────────────────────────────────
+async function boot() {
+  wire();
+  state.updates = { available: [] };
+  // expose a small dir picker through preload if available
+  try {
+    const snap = await window.hshop.snapshot();
+    state.downloads = snap;
+  } catch { }
+  await loadCategories();
+  await window.hshop.updatesCheck();
+  show('home');
+}
+boot();
