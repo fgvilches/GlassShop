@@ -419,26 +419,52 @@ async function startDownloadFromSheet() {
   const t = state.sheet.title;
   if (!t) return;
   const btn = $('#sheet-download');
-  btn.disabled = true; btn.textContent = 'Verificando…';
-  try {
-    // 1. resolve the Turnstile-gated direct link (may show a verification window)
-    const links = await window.hshop.resolveDownload(t.id);
-    if (!links || links.error || !links.direct) {
-      throw new Error((links && links.error) || 'no se obtuvo el enlace de descarga');
-    }
-    // 2. enqueue
-    const info = downloadItemInfoFromSheet();
-    info.url = links.direct;
-    const res = await window.hshop.addDownload(info);
-    if (res && res.error) throw new Error(res.error);
-    toast(`Añadido a descargas: ${t.name}`, 'ok');
-    closeSheet();
-    show('downloads');
-  } catch (e) {
-    toast(`No se pudo iniciar: ${e.message || e}`, 'err');
-  } finally {
+  const restore = () => {
     btn.disabled = false;
     btn.innerHTML = `<svg viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="M8 1a1 1 0 0 1 1 1v6.586l2.293-2.293a1 1 0 1 1 1.414 1.414l-4 4a1 1 0 0 1-1.414 0l-4-4a1 1 0 1 1 1.414-1.414L7 8.586V2a1 1 0 0 1 1-1M2 13h12v2H2z"/></svg> Descargar`;
+  };
+
+  // what actually queues the title, once base-first has had its say
+  const run = async () => {
+    btn.disabled = true;
+    btn.textContent = 'Verificando…';
+    try {
+      const links = await window.hshop.resolveDownload(t.id);
+      if (!links || links.error || !links.direct) {
+        throw new Error((links && links.error) || 'no se obtuvo el enlace de descarga');
+      }
+      const info = downloadItemInfoFromSheet();
+      info.url = links.direct;
+      const res = await window.hshop.addDownload(info);
+      if (res && res.error) throw new Error(res.error);
+      toast(`Añadido a descargas: ${t.name}`, 'ok');
+      closeSheet();
+      show('downloads');
+    } catch (e) {
+      toast(`No se pudo iniciar: ${e.message || e}`, 'err');
+    } finally {
+      restore();
+    }
+  };
+
+  const detail = state.sheet.detail || {};
+  const pc = detail.productCode || t.productCode || null;
+  const isUpdate = typeof pc === 'string' && /^[A-Za-z]{3}-U-/i.test(pc);
+
+  if (!isUpdate) {
+    await run();
+    return;
+  }
+
+  // an update: make sure its base game is there before queueing it
+  btn.disabled = true;
+  btn.textContent = 'Comprobando juego base…';
+  try {
+    await maybeBaseFirst({ id: t.id, name: t.name, productCode: pc }, run);
+  } catch {
+    await run();
+  } finally {
+    restore();
   }
 }
 
@@ -536,21 +562,45 @@ function renderUpdates() {
   }
 }
 
-async function startUpdateDownload(u) {
-  const baseFirst = await window.hshop.updatesBaseFirst({
-    id: u.titleId, name: u.name, productCode: u.productCode || null,
-  });
-  if (baseFirst.base) {
-    // el juego base ya está instalado: añadir solo el update
-    return enqueueUpdate(u);
+// ── base-first (update sin juego base) ───────────────────────────────────────
+// Shared by the updates panel and by a plain download of an update entry.
+// `proceed` is what happens when there is nothing to warn about.
+async function maybeBaseFirst(update, proceed) {
+  let res = null;
+  try {
+    res = await window.hshop.updatesBaseFirst(update);
+  } catch { /* offline or older bridge */ }
+  if (!res || res.error) { await proceed(); return; }
+
+  // the base game is already on disk
+  if (res.base) {
+    toast(`El juego base ya está en tu carpeta: ${res.base.name}`, 'ok');
+    await proceed();
+    return;
   }
-  // base no instalada: ofrecer base primero
-  state.pendingBaseFirst = { base: baseFirst.base, update: u };
-  $('#basefirst-title').textContent = `Actualización para ${esc(u.name)}`;
+
+  // not on disk and not on hShop: nothing to offer
+  if (!res.baseTitle) {
+    toast('No encontré el juego base en hShop: se agrega solo el update.', 'err');
+    await proceed();
+    return;
+  }
+
+  state.pendingBaseFirst = { base: res.baseTitle, update, proceed };
+  $('#basefirst-title').textContent = `Update de ${res.baseTitle.name}`;
   $('#basefirst-msg').textContent =
-    `Parece que aún no tienes instalado el juego base “${esc(baseFirst.base.name)}”. ¿Descargas primero el juego base y luego este update?`;
+    `No tienes el juego base de esta actualización («${esc(res.baseTitle.name)}»). ` +
+    `Puedes descargar el juego primero y luego el update, o bajar solo el update ` +
+    `(no sirve sin el juego instalado).`;
   $('#basefirst-scrim').classList.remove('hidden');
   $('#basefirst-sheet').classList.remove('hidden');
+}
+
+async function startUpdateDownload(u) {
+  await maybeBaseFirst(
+    { id: u.titleId, name: u.name, productCode: u.productCode || null },
+    () => enqueueUpdate(u),
+  );
 }
 
 async function enqueueUpdate(u) {
@@ -558,10 +608,14 @@ async function enqueueUpdate(u) {
   if (btn) { btn.disabled = true; btn.textContent = 'Resolviendo…'; }
   try {
     const links = await window.hshop.resolveDownload(u.titleId);
-    await window.hshop.addDownload({
+    if (!links || links.error || !links.direct) {
+      throw new Error((links && links.error) || 'no se obtuvo el enlace');
+    }
+    const res = await window.hshop.addDownload({
       id: u.titleId, name: u.name, filename: `${u.name}.cia`,
       url: links.direct,
     });
+    if (res && res.error) throw new Error(res.error);
     toast(`Añadido a descargas: ${u.name}`, 'ok');
     await window.hshop.updatesCheck();
   } catch (e) {
@@ -574,22 +628,31 @@ async function enqueueUpdate(u) {
 async function enqueueBaseAndUpdate() {
   const p = state.pendingBaseFirst;
   if (!p) return;
+  const proceed = p.proceed;
   closeBaseFirst();
-  try {
-    // 1. juego base
-    const baseLinks = await window.hshop.resolveDownload(p.base.titleId);
-    await window.hshop.addDownload({
-      id: p.base.titleId, name: p.base.name, filename: `${p.base.name}.cia`,
-      url: baseLinks.direct,
-    });
-    toast(`Añadido a descargas: ${p.base.name}`, 'ok');
-    // 2. el update
-    await enqueueUpdate(p.update);
-    state.pendingBaseFirst = null;
-  } catch (e) {
-    toast(`No se pudo agregar: ${e.message || e}`, 'err');
-    state.pendingBaseFirst = null;
+
+  const baseId = String(p.base.id || p.base.titleId || '');
+  if (baseId) {
+    try {
+      const links = await window.hshop.resolveDownload(baseId);
+      if (!links || links.error || !links.direct) {
+        throw new Error((links && links.error) || 'no se obtuvo el enlace');
+      }
+      const res = await window.hshop.addDownload({
+        id: baseId,
+        name: p.base.name,
+        filename: `${p.base.name}.cia`,
+        url: links.direct,
+        sizeBytes: p.base.sizeBytes || null,
+      });
+      if (res && res.error) throw new Error(res.error);
+      toast(`Añadido a descargas: ${p.base.name}`, 'ok');
+    } catch (e) {
+      toast(`No se pudo agregar el juego base: ${e.message || e}`, 'err');
+    }
   }
+
+  if (typeof proceed === 'function') await proceed();
 }
 
 function closeBaseFirst() {
@@ -609,6 +672,55 @@ function renderSettings() {
   $('#speed-limit').value = Math.min(50, lim ? Math.round(lim / 1048576) : 0);
   $('#speed-limit-val').textContent = lim ? `${Math.round(lim / 1048576)} MiB/s` : '∞';
   $('#toggle-verify').textContent = s.autoVerify ? 'Activada ✓' : 'Desactivada';
+  renderLibrary();
+}
+
+// library = what the update checker knows about, from the folder on disk
+async function renderLibrary() {
+  const label = $('#library-summary');
+  if (!label) return;
+  try {
+    const snap = await window.hshop.updatesSnapshot();
+    if (!snap || snap.error) { label.textContent = '—'; return; }
+    const indexed = (snap.installed || []).length;
+    const missing = (snap.missing || []).length;
+    const unindexed = (snap.unindexed || []).length;
+    const parts = [`${indexed} en la biblioteca`];
+    if (missing) parts.push(`${missing} ya no están en disco`);
+    if (unindexed) parts.push(`${unindexed} sin indexar en la carpeta`);
+    label.textContent = parts.join(' · ');
+    const btn = $('#scan-folder');
+    if (btn) btn.disabled = unindexed === 0;
+  } catch {
+    label.textContent = '—';
+  }
+}
+
+async function scanFolder() {
+  const btn = $('#scan-folder');
+  const label = $('#library-summary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Escaneando…'; }
+  try {
+    const res = await window.hshop.updatesScan();
+    if (res && res.error) throw new Error(res.error);
+    const matched = res?.scan?.matched ?? 0;
+    const skipped = (res?.scan?.skipped || []).length;
+    toast(
+      matched
+        ? `Indexados ${matched} archivo(s)${skipped ? ` · ${skipped} sin coincidencia` : ''}`
+        : 'No se pudo emparejar ningún archivo con el catálogo.',
+      matched ? 'ok' : 'err',
+    );
+    if (res?.updates?.length) {
+      state.updates.available = res.updates;
+      renderUpdates();
+    }
+    await renderLibrary();
+  } catch (e) {
+    toast(`Error al escanear: ${e.message || e}`, 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Escanear carpeta'; }
+  }
 }
 
 // ── wiring ─────────────────────────────────────────────────────────────────────
@@ -669,8 +781,9 @@ function wire() {
   $('#basefirst-close').addEventListener('click', closeBaseFirst);
   $('#basefirst-scrim').addEventListener('click', closeBaseFirst);
   $('#basefirst-skip').addEventListener('click', async () => {
+    const p = state.pendingBaseFirst;
     closeBaseFirst();
-    if (state.pendingBaseFirst) { await enqueueUpdate(state.pendingBaseFirst.update); state.pendingBaseFirst = null; }
+    if (p && typeof p.proceed === 'function') await p.proceed();
   });
   $('#basefirst-base-first').addEventListener('click', enqueueBaseAndUpdate);
   document.addEventListener('keydown', (ev) => {
@@ -682,6 +795,7 @@ function wire() {
     const dir = await ipcPickDir();
     if (dir) window.hshop.setDownloadSettings({ downloadDir: dir });
   });
+  $('#scan-folder')?.addEventListener('click', scanFolder);
   $('#concurrency').addEventListener('input', () => {
     $('#concurrency-val').textContent = $('#concurrency').value;
     window.hshop.setDownloadSettings({ concurrency: +$('#concurrency').value });

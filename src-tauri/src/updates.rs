@@ -402,8 +402,9 @@ impl Checker {
     // ── base-first ───────────────────────────────────────────────────────────
 
     /// Given an update about to be downloaded, find its base game **on disk**
-    /// (the download list is irrelevant — the file is what matters).
-    pub fn resolve_base_first(&self, update: &serde_json::Value) -> serde_json::Value {
+    /// (the download list is irrelevant — the file is what matters). When it is
+    /// not on disk, look it up on hShop so the UI can offer to fetch it first.
+    pub async fn resolve_base_first(&self, update: &serde_json::Value) -> serde_json::Value {
         let pc = update
             .get("productCode")
             .and_then(|v| v.as_str())
@@ -411,7 +412,11 @@ impl Checker {
             .to_string();
 
         if !is_update_code(&pc) {
-            return serde_json::json!({ "base": serde_json::Value::Null, "update": update });
+            return serde_json::json!({
+                "base": serde_json::Value::Null,
+                "baseTitle": serde_json::Value::Null,
+                "update": update
+            });
         }
 
         let base = self.present().into_iter().find(|entry| {
@@ -422,8 +427,142 @@ impl Checker {
                 .unwrap_or(false)
         });
 
-        serde_json::json!({ "base": base, "update": update })
+        let base_title = if base.is_none() {
+            self.find_base_title(&pc).await
+        } else {
+            None
+        };
+
+        serde_json::json!({ "base": base, "baseTitle": base_title, "update": update })
     }
+
+    /// `CTR-U-AXCE` → the base entry on hShop (`CTR-P-AXCE` or `CTR-N-AXCE`…).
+    fn find_base_title(
+        &self,
+        update_code: &str,
+    ) -> futures_util::future::BoxFuture<'_, Option<catalog::TitleRow>> {
+        let code = update_code.to_string();
+        Box::pin(async move { find_base_title(&code).await })
+    }
+
+    // ── folder scan ──────────────────────────────────────────────────────────
+
+    /// Indexes files that are in the download folder but not in the library:
+    /// the filename is searched on hShop and a confident match is stored, so an
+    /// carried-over folder also gets update checks.
+    pub async fn scan_folder(&self, dir: &Path) -> serde_json::Value {
+        let files = self.unindexed(dir);
+        let mut matched = 0;
+        let mut skipped: Vec<String> = Vec::new();
+
+        for path in files.iter().take(80) {
+            let stem = Path::new(path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            let clean = clean_name(&stem);
+            if clean.len() < 3 {
+                skipped.push(path.clone());
+                continue;
+            }
+
+            let Ok(page) = catalog::search_titles(&SearchQuery {
+                query: Some(clean.clone()),
+                qt: Some("Text".into()),
+                count: Some(10),
+                ..Default::default()
+            })
+            .await
+            else {
+                skipped.push(path.clone());
+                continue;
+            };
+
+            let Some(row) = page
+                .titles
+                .into_iter()
+                .find(|t| names_match(&clean, &t.name))
+            else {
+                skipped.push(path.clone());
+                continue;
+            };
+
+            let detail = catalog::fetch_title_detail(&row.id).await.ok();
+            self.record(RecordPayload {
+                id: row.id.clone(),
+                name: Some(row.name.clone()),
+                path: Some(path.clone()),
+                title_id: row.title_id.clone(),
+                product_code: row.product_code.clone(),
+                version: detail.and_then(|d| d.version).or_else(|| row.version.clone()),
+                size: row.size_bytes,
+            });
+            matched += 1;
+        }
+
+        serde_json::json!({ "matched": matched, "skipped": skipped })
+    }
+}
+
+/// `CTR-U-AXCE` → the base entry on hShop. The type letter varies by release
+/// (retail `P`, virtual console `N`, …), so the plausible ones are tried.
+pub async fn find_base_title(update_code: &str) -> Option<catalog::TitleRow> {
+    let (prefix, _kind, code) = split_code(update_code)?;
+    for kind in ["P", "N", "H", "A", "Q", "C"] {
+        let candidate = format!("{prefix}-{kind}-{code}");
+        let Ok(page) = catalog::search_titles(&SearchQuery {
+            query: Some(candidate.clone()),
+            qt: Some("ProductCode".into()),
+            count: Some(10),
+            ..Default::default()
+        })
+        .await
+        else {
+            continue;
+        };
+        if let Some(row) = page.titles.into_iter().find(|t| {
+            t.product_code
+                .as_deref()
+                .map(|c| c.eq_ignore_ascii_case(&candidate))
+                .unwrap_or(false)
+        }) {
+            return Some(row);
+        }
+    }
+    None
+}
+
+/// Lowercase alphanumeric form used to compare filenames with titles.
+fn clean_name(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// A filename matches a title when one contains the other (titles on hShop are
+/// often a prefix of the local file name, which carries region/version tags).
+fn names_match(clean: &str, title: &str) -> bool {
+    let t = clean_name(title);
+    if t.is_empty() || clean.is_empty() {
+        return false;
+    }
+    if clean.contains(&t) || t.contains(clean) {
+        return true;
+    }
+    // fall back to the first three words
+    let head: Vec<&str> = t.split(' ').take(3).collect();
+    !head.is_empty() && clean.contains(&head.join(" "))
 }
 
 fn entry_page_url(entry: &LibraryEntry) -> String {
@@ -466,5 +605,31 @@ mod tests {
         let v = parse_version("34.30.0 (35296)").unwrap();
         assert_eq!(v.cmp_key(), (34, 30, 0, 35296));
         assert!(parse_version("0.0.0 (0)").unwrap().cmp_key() < v.cmp_key());
+    }
+
+    #[test]
+    fn matches_filenames_to_titles() {
+        let file = clean_name("Super Smash Bros. for Nintendo 3DS (USA).cia");
+        assert_eq!(file, "super smash bros for nintendo 3ds usa cia");
+        assert!(names_match(&file, "Super Smash Bros. for Nintendo 3DS"));
+
+        let zelda = clean_name("The Legend of Zelda - Ocarina of Time 3D");
+        assert!(names_match(&zelda, "The Legend of Zelda: Ocarina of Time 3D"));
+        assert!(!names_match(&zelda, "Pokemon Ultra Sun"));
+    }
+
+    #[test]
+    #[ignore]
+    fn live_finds_base_of_update() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let row = rt
+            .block_on(find_base_title("CTR-U-AXCE"))
+            .expect("base title for CTR-U-AXCE");
+        println!("base of CTR-U-AXCE → /t/{} {} ({:?})", row.id, row.name, row.product_code);
+        assert!(row
+            .product_code
+            .as_deref()
+            .map(|c| c.eq_ignore_ascii_case("CTR-P-AXCE"))
+            .unwrap_or(false));
     }
 }

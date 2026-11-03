@@ -488,8 +488,19 @@ pub async fn fetch_titles(q: &TitlesQuery) -> Result<TitlePage, String> {
     })
 }
 
+/// The site only accepts 10 / 25 / 50 / 100 for `count`; anything else returns
+/// an empty listing. Snap to the nearest supported value.
+fn snap_count(n: i64) -> i64 {
+    match n {
+        0..=10 => 10,
+        11..=25 => 25,
+        26..=50 => 50,
+        _ => 100,
+    }
+}
+
 pub async fn search_titles(q: &SearchQuery) -> Result<TitlePage, String> {
-    let count = q.count.unwrap_or(50).clamp(1, 100);
+    let count = snap_count(q.count.unwrap_or(50));
     let offset = q.offset.unwrap_or(0).max(0);
     let url = build_search_url(q);
     let html = fetch_text(&url).await?;
@@ -508,7 +519,7 @@ pub async fn search_titles(q: &SearchQuery) -> Result<TitlePage, String> {
 pub fn build_search_url(q: &SearchQuery) -> String {
     let query_text = q.query.clone().unwrap_or_default();
     let qt = q.qt.clone().unwrap_or_else(|| "Text".into());
-    let count = q.count.unwrap_or(50).clamp(1, 100);
+    let count = snap_count(q.count.unwrap_or(50));
     let offset = q.offset.unwrap_or(0).max(0);
 
     let mut params = vec![

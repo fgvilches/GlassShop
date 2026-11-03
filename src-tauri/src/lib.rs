@@ -112,6 +112,25 @@ pub fn run() {
             app.manage(mgr.clone());
             app.manage(checker.clone());
 
+            // ── background update sweep ─────────────────────────────────────
+            // the renderer asks for a check on boot; this keeps it fresh while
+            // the app stays open, without the user having to press anything
+            {
+                let poll_checker = checker.clone();
+                let poll_handle = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(25)).await;
+                    loop {
+                        let found = poll_checker.check_all().await;
+                        diag::log(
+                            &poll_handle,
+                            format!("update sweep: {} update(s) available", found.len()),
+                        );
+                        tokio::time::sleep(std::time::Duration::from_secs(12 * 60 * 60)).await;
+                    }
+                });
+            }
+
             // ── window chrome per platform ──────────────────────────────────
             // macOS keeps its traffic lights over an overlay title bar; every
             // other platform goes borderless so the glass fills the window,
@@ -171,6 +190,7 @@ pub fn run() {
             commands::updates_record_installed,
             commands::updates_forget,
             commands::updates_base_first,
+            commands::updates_scan,
             commands::app_open_external,
             commands::app_pick_dir,
             commands::app_platform,

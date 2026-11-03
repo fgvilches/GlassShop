@@ -175,8 +175,27 @@ pub fn updates_forget(checker: State<'_, SharedChecker>, title_id: String) -> Va
 }
 
 #[tauri::command]
-pub fn updates_base_first(checker: State<'_, SharedChecker>, update_info: Value) -> Value {
-    checker.resolve_base_first(&update_info)
+pub async fn updates_base_first(
+    checker: State<'_, SharedChecker>,
+    update_info: Value,
+) -> Result<Value, String> {
+    Ok(checker.resolve_base_first(&update_info).await)
+}
+
+/// Indexes files sitting in the download folder that were never recorded, then
+/// re-runs the update sweep so those titles get checked too.
+#[tauri::command]
+pub async fn updates_scan(
+    checker: State<'_, SharedChecker>,
+    manager: State<'_, Manager>,
+) -> Result<Value, String> {
+    let dir = std::path::PathBuf::from(manager.settings().download_dir);
+    let report = checker.scan_folder(&dir).await;
+    let updates = checker.check_all().await;
+    Ok(json!({
+        "scan": report,
+        "updates": updates,
+    }))
 }
 
 // ── app ──────────────────────────────────────────────────────────────────────

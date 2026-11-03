@@ -64,6 +64,7 @@
     updatesRecordInstalled: (info) => call('updates_record_installed', { info }),
     updatesForget: (titleId) => call('updates_forget', { titleId }),
     updatesBaseFirst: (updateInfo) => call('updates_base_first', { updateInfo }),
+    updatesScan: () => call('updates_scan'),
 
     // app
     openExternal: (url) => call('app_open_external', { url }),
