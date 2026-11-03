@@ -1,4 +1,8 @@
-# GlassShop
+<p align="center">
+  <img src="assets/hshop-logo.svg" width="128" alt="GlassShop logo">
+</p>
+
+<h1 align="center">GlassShop</h1>
 
 A native **Liquid Glass** download manager for [hShop](https://hshop.erista.me) — browse the 3DS catalog, queue downloads with resume support, verify integrity, and get notified when a title you already downloaded has a newer version published.
 
