@@ -75,6 +75,34 @@ src/renderer/
 assets/             logo source and icon master
 ```
 
+## In-app updates
+
+The app updates itself from GitHub Releases, on all three platforms.
+
+1. On launch (and from **Ajustes → Actualizaciones**) it fetches
+   [`latest.json`](https://github.com/fgvilches/GlassShop/releases/latest/download/latest.json),
+   the manifest `tauri-action` publishes with every release.
+2. If the release version is newer, it downloads the artifact for the running
+   platform and arch, verifies its **minisign signature** against the public key
+   baked into the binary, and swaps the bundle in place.
+3. It restarts into the new version.
+
+The signature is what makes this safe: unsigned or tampered artifacts are
+rejected before anything is written. The private key lives in the
+`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` repository
+secrets — **if it is lost, published installs can no longer be updated** (the
+public key is compiled into them).
+
+| Platform | Artifact used by the updater |
+|---|---|
+| macOS | `GlassShop.app.tar.gz` (universal) |
+| Windows | `-setup.exe` (NSIS) |
+| Linux | `.AppImage` |
+
+A `.deb` install cannot replace itself; in that case download the new `.deb`.
+`GLASSSHOP_UPDATE_ENDPOINT` overrides the manifest URL (useful to test against
+a local `latest.json`).
+
 ## How update detection works
 
 hShop publishes a game's update as its own entry, and the two are linked by product code: the base game is `CTR-P-AXCE`, its update is `CTR-U-AXCE` (same prefix, same four-character game code, type letter swapped). GlassShop derives that code, searches hShop for it, and reads the version published on the update page.

@@ -4,7 +4,8 @@
 // renderer keeps painting the same glass-card design language on top.
 // ─────────────────────────────────────────────────────────────────────────────
 
-mod catalog;
+pub mod appupdate;
+pub mod catalog;
 mod commands;
 mod diag;
 mod downloads;
@@ -23,6 +24,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -192,6 +194,10 @@ pub fn run() {
             commands::updates_base_first,
             commands::updates_scan,
             commands::updates_extras,
+            appupdate::update_current_version,
+            appupdate::update_check,
+            appupdate::update_install,
+            appupdate::update_restart,
             commands::app_open_external,
             commands::app_pick_dir,
             commands::app_platform,

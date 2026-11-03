@@ -472,6 +472,35 @@ html, body {
 @keyframes indet { from { margin-left: 0; } to { margin-left: 70%; } }
 
 /* ── settings ──────────────────────────────────────────────────────────────── */
+.update-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  margin: 6px 0 12px;
+}
+.update-progress i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #00e5ff, #30e58c);
+  transition: width 220ms ease;
+}
+.update-progress i.indet { width: 30% !important; animation: indet 1.2s ease-in-out infinite alternate; }
+
+/* dot on the settings nav item when there is a new version */
+.nav-item { position: relative; }
+.nav-item.has-update::after {
+  content: '';
+  position: absolute;
+  top: 9px;
+  right: 11px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #30e58c;
+  box-shadow: 0 0 8px rgba(48, 229, 140, 0.8);
+}
 .settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--s-md); }
 .setting-card { padding: var(--s-lg); display: flex; flex-direction: column; gap: 10px; }
 .setting-card h3 { font: 600 15px var(--font-sans); }

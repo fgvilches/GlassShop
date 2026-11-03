@@ -21,3 +21,7 @@ Thumbs.db
 
 # Local design notes (not part of the public repo)
 DESIGN.md
+
+# updater signing material never goes in the repo
+*.key
+*.key.password

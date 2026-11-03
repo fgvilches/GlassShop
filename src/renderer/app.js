@@ -794,6 +794,107 @@ function closeBaseFirst() {
 }
 
 // ── settings view ─────────────────────────────────────────────────────────────
+// ── auto-update de la app ───────────────────────────────────────────────────
+// The Rust side owns the real work (minisign check + bundle swap); this only
+// drives the settings card and the progress bar.
+async function initAppUpdate() {
+  try {
+    const cur = await window.hshop.updateCurrentVersion();
+    if (cur && cur.version) {
+      state.appUpdate = { current: cur.version };
+      const el = $('#app-version');
+      if (el) el.textContent = `Versión instalada: ${cur.version} · ${cur.platform}/${cur.arch}`;
+    }
+  } catch { /* older bridge */ }
+
+  window.hshop.onUpdateProgress?.((p) => {
+    const bar = $('#app-update-bar');
+    if (!bar) return;
+    bar.classList.remove('hidden');
+    const fill = bar.querySelector('i');
+    if (p && p.total) {
+      const pct = Math.min(100, Math.round((p.chunk / p.total) * 100));
+      if (fill) fill.style.width = `${pct}%`;
+      const btn = $('#app-update-install');
+      if (btn && btn.disabled) btn.textContent = `Descargando… ${pct}%`;
+    } else if (fill) {
+      fill.style.width = '30%';
+      fill.classList.add('indet');
+    }
+  });
+
+  // a quiet check a few seconds after launch — never blocks the UI
+  setTimeout(() => {
+    window.hshop
+      .updateCheck()
+      .then((res) => {
+        if (res && res.available) markAppUpdate(res);
+      })
+      .catch(() => {});
+  }, 5000);
+}
+
+function markAppUpdate(res) {
+  state.appUpdate = { ...(state.appUpdate || {}), latest: res.version, notes: res.notes };
+  const status = $('#app-update-status');
+  if (status) status.textContent = `Versión ${res.version} disponible.`;
+  const btn = $('#app-update-install');
+  if (btn) {
+    btn.classList.remove('hidden');
+    btn.textContent = `Actualizar a ${res.version}`;
+    btn.disabled = false;
+  }
+  document.querySelector('[data-view="settings"]')?.classList.add('has-update');
+  toast(`GlassShop ${res.version} está disponible`, 'ok');
+}
+
+async function checkAppUpdate(btn) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Buscando…';
+  try {
+    const res = await window.hshop.updateCheck();
+    if (res && res.error) throw new Error(res.error);
+    if (res && res.available) {
+      markAppUpdate(res);
+    } else {
+      const status = $('#app-update-status');
+      if (status) status.textContent = `Estás al día (${(res && res.currentVersion) || '—'}).`;
+      toast('GlassShop está actualizado', 'ok');
+    }
+  } catch (e) {
+    const status = $('#app-update-status');
+    if (status) status.textContent = 'No se pudo consultar el servidor de actualizaciones.';
+    toast(`No se pudo consultar: ${e.message || e}`, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
+async function installAppUpdate(btn) {
+  btn.disabled = true;
+  btn.textContent = 'Descargando… 0%';
+  try {
+    const res = await window.hshop.updateInstall();
+    if (res && res.error) throw new Error(res.error);
+    if (!res || !res.installed) {
+      btn.disabled = false;
+      btn.textContent = 'Actualizar';
+      toast('No había nada que instalar', 'err');
+      return;
+    }
+    btn.textContent = 'Reiniciando…';
+    await window.hshop.updateRestart();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Reintentar';
+    const status = $('#app-update-status');
+    if (status) status.textContent = `Falló la actualización: ${e.message || e}`;
+    toast(`No se pudo actualizar: ${e.message || e}`, 'err');
+  }
+}
+
 function renderSettings() {
   const s = state.downloads.settings;
   if (!s || !s.downloadDir) return;
@@ -954,6 +1055,8 @@ function wire() {
     if (dir) window.hshop.setDownloadSettings({ downloadDir: dir });
   });
   $('#scan-folder')?.addEventListener('click', scanFolder);
+  $('#app-update-check')?.addEventListener('click', (ev) => checkAppUpdate(ev.currentTarget));
+  $('#app-update-install')?.addEventListener('click', (ev) => installAppUpdate(ev.currentTarget));
   $('#concurrency').addEventListener('input', () => {
     $('#concurrency-val').textContent = $('#concurrency').value;
     window.hshop.setDownloadSettings({ concurrency: +$('#concurrency').value });
@@ -1032,5 +1135,6 @@ async function boot() {
   await loadCategories();
   await window.hshop.updatesCheck();
   show('home');
+  initAppUpdate();
 }
 boot();

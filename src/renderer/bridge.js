@@ -67,6 +67,12 @@
     updatesScan: () => call('updates_scan'),
     updatesExtras: (productCode) => call('updates_extras', { productCode }),
 
+    // app update
+    updateCurrentVersion: () => call('update_current_version'),
+    updateCheck: () => call('update_check'),
+    updateInstall: () => call('update_install'),
+    updateRestart: () => call('update_restart'),
+
     // app
     openExternal: (url) => call('app_open_external', { url }),
     pickDir: () => call('app_pick_dir'),
@@ -80,6 +86,7 @@
     onUpdatesAvailable: (cb) => subscribe('updates:available', cb),
     onUpdatesBaseFirst: (cb) => subscribe('updates:base-first', cb),
     onNavigate: (cb) => subscribe('ui:navigate', cb),
+    onUpdateProgress: (cb) => subscribe('app-update:progress', cb),
     onThemeChanged: (cb) => subscribe('theme:changed', cb),
   };
 })();

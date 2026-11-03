@@ -17,6 +17,7 @@ jobs:
             artifacts: |
               src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
               src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
+              src-tauri/target/universal-apple-darwin/release/bundle/macos/*.tar.gz
           - os: windows-latest
             target: ''
             bundles: msi,nsis
@@ -29,6 +30,7 @@ jobs:
             artifacts: |
               src-tauri/target/release/bundle/deb/*.deb
               src-tauri/target/release/bundle/appimage/*.AppImage
+              src-tauri/target/release/bundle/appimage/*.tar.gz
 
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.os }}
@@ -60,8 +62,39 @@ jobs:
 
       - run: npm install
 
-      - name: Build with Tauri
+      # Manual run: build only, no release.
+      - name: Build (workflow_dispatch)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build -- ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }} --bundles ${{ matrix.bundles }}
+
+      # Tag push: build, sign the updater artifacts, attach them to the release
+      # and (re)generate latest.json — the manifest the app polls.
+      - name: Build and publish release (tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: GlassShop ${{ github.ref_name }}
+          releaseBody: |
+            Instaladores de GlassShop ${{ github.ref_name }}.
+
+            - macOS: `.dmg` universal (arm64 + Intel). Si Gatekeeper se queja, `xattr -dr com.apple.quarantine /Applications/GlassShop.app`.
+            - Windows: `-setup.exe` (NSIS) o `.msi`.
+            - Linux: `.AppImage` (se autoactualiza) o `.deb`.
+
+            Las instalaciones anteriores se actualizan solas desde Ajustes → Actualizaciones.
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: ${{ matrix.target != '' && format('--target {0} --bundles {1}', matrix.target, matrix.bundles) || format('--bundles {0}', matrix.bundles) }}
 
       - uses: actions/upload-artifact@v5
         with:
