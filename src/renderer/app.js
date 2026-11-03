@@ -563,9 +563,31 @@ async function ipcPickDir() {
   return window.hshop.pickDir ? await window.hshop.pickDir() : null;
 }
 
+// ── borderless window chrome (Windows / Linux) ────────────────────────────────
+async function setupWindowChrome() {
+  let os = 'macos';
+  try {
+    os = await window.hshop.platform();
+  } catch { /* older bridge */ }
+  if (os === 'macos') return;
+
+  document.body.classList.add('borderless');
+  const bar = $('#win-controls');
+  if (bar) bar.classList.remove('hidden');
+
+  // drag anywhere on a page header's empty space
+  document.querySelectorAll('.page-head, .sidebar-header').forEach((el) =>
+    el.setAttribute('data-tauri-drag-region', ''));
+
+  $('#win-min')?.addEventListener('click', () => window.hshop.minimize());
+  $('#win-max')?.addEventListener('click', () => window.hshop.toggleMaximize());
+  $('#win-close')?.addEventListener('click', () => window.hshop.closeWindow());
+}
+
 // ── boot ───────────────────────────────────────────────────────────────────────
 async function boot() {
   wire();
+  await setupWindowChrome();
   state.updates = { available: [] };
   // expose a small dir picker through preload if available
   try {

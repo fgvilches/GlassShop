@@ -68,6 +68,10 @@
     // app
     openExternal: (url) => call('app_open_external', { url }),
     pickDir: () => call('app_pick_dir'),
+    platform: () => call('app_platform'),
+    minimize: () => call('window_minimize'),
+    toggleMaximize: () => call('window_toggle_maximize'),
+    closeWindow: () => call('window_close'),
 
     // events
     onDownloadsChanged: (cb) => subscribe('downloads:snapshot', cb),

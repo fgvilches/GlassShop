@@ -80,7 +80,10 @@ pub fn run() {
             app.manage(mgr.clone());
             app.manage(checker.clone());
 
-            // ── macOS vibrancy (the "liquid glass" material) ────────────────
+            // ── window chrome per platform ──────────────────────────────────
+            // macOS keeps its traffic lights over an overlay title bar; every
+            // other platform goes borderless so the glass fills the window,
+            // with the controls drawn by the renderer instead.
             #[cfg(target_os = "macos")]
             {
                 use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
@@ -92,9 +95,22 @@ pub fn run() {
                         Some(14.0),
                     );
                 }
+                build_menu(app, &mgr)?;
             }
 
-            build_menu(app, &mgr)?;
+            #[cfg(not(target_os = "macos"))]
+            {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.set_decorations(false);
+                }
+            }
+
+            // the window is created hidden so these adjustments land before it
+            // is ever painted
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.show();
+                let _ = win.set_focus();
+            }
 
             Ok(())
         })
@@ -125,11 +141,16 @@ pub fn run() {
             commands::updates_base_first,
             commands::app_open_external,
             commands::app_pick_dir,
+            commands::app_platform,
+            commands::window_minimize,
+            commands::window_toggle_maximize,
+            commands::window_close,
         ])
         .run(tauri::generate_context!())
         .expect("error while running GlassShop");
 }
 
+#[cfg(target_os = "macos")]
 fn build_menu(app: &tauri::App, mgr: &downloads::Manager) -> tauri::Result<()> {
     let app_handle = app.handle().clone();
     let manager = mgr.clone();

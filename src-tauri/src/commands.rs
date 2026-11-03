@@ -211,3 +211,33 @@ pub async fn app_pick_dir(app: AppHandle) -> Value {
 pub fn detail_title_id(detail: &TitleDetail) -> Option<String> {
     detail.title_id.clone().or_else(|| Some(detail.id.clone()))
 }
+
+// ── window chrome (borderless windows on Windows/Linux) ─────────────────────
+
+#[tauri::command]
+pub fn app_platform() -> String {
+    std::env::consts::OS.to_string()
+}
+
+#[tauri::command]
+pub fn window_minimize(window: tauri::WebviewWindow) -> Value {
+    let _ = window.minimize();
+    json!({ "ok": true })
+}
+
+#[tauri::command]
+pub fn window_toggle_maximize(window: tauri::WebviewWindow) -> Value {
+    let maximized = window.is_maximized().unwrap_or(false);
+    let _ = if maximized {
+        window.unmaximize()
+    } else {
+        window.maximize()
+    };
+    json!({ "maximized": !maximized })
+}
+
+#[tauri::command]
+pub fn window_close(window: tauri::WebviewWindow) -> Value {
+    let _ = window.close();
+    json!({ "ok": true })
+}

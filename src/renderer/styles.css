@@ -490,6 +490,25 @@ html, body {
 body.darwin .app { -webkit-app-region: no-drag; }
 .titlebar-drag { position: fixed; top: 0; left: 0; right: 0; height: 40px; -webkit-app-region: drag; z-index: 30; pointer-events: none; }
 
+/* ── borderless window chrome (Windows / Linux) ──────────────────────────────
+   Those platforms drop the native frame (and the in-window menu bar) so the
+   glass can fill the window; these controls replace the missing ones. */
+.win-controls {
+  position: fixed; top: 6px; right: 8px; z-index: 70;
+  display: flex; gap: 2px;
+}
+.win-btn {
+  width: 32px; height: 26px; display: grid; place-items: center;
+  border: 0; border-radius: 7px; background: transparent;
+  color: var(--c-secondary); cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.win-btn:hover { background: rgba(255, 255, 255, 0.10); color: var(--c-primary); }
+.win-btn.close:hover { background: var(--c-danger-deep); color: #fff; }
+.win-btn:focus-visible { outline: 2px solid var(--c-tertiary); outline-offset: 1px; }
+body.borderless .page-head { padding-right: 110px; }
+body.borderless .sidebar { padding-top: 8px; }
+
 /* scrollbars */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #FFFFFF24; border-radius: var(--r-pill); border: 3px solid transparent; background-clip: padding-box; }

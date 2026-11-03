@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "GlassShop",
-  "version": "1.0.0",
-  "identifier": "me.erista.glassshop",
+  "version": "1.0.1",
+  "identifier": "io.github.fgvilches.glassshop",
   "build": {
     "frontendDist": "../src/renderer",
     "devUrl": "http://localhost:3000",
@@ -19,6 +19,7 @@
         "resizable": true,
         "fullscreen": false,
         "transparent": true,
+        "visible": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true
       }
@@ -40,6 +41,8 @@
       "icons/icon.ico"
     ],
     "category": "Utility",
+    "publisher": "Felipe González",
+    "copyright": "© 2026 Felipe González",
     "shortDescription": "Liquid Glass download manager for hShop",
     "longDescription": "Browse and download 3DS titles from hShop with a native Liquid Glass interface.",
     "macOS": {

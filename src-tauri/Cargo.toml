@@ -1,8 +1,8 @@
 [package]
 name = "app"
-version = "1.0.0"
+version = "1.0.1"
 description = "GlassShop — Liquid Glass download manager for hShop"
-authors = ["shift"]
+authors = ["Felipe González"]
 license = "MIT"
 edition = "2021"
 rust-version = "1.90"

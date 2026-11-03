@@ -87,14 +87,12 @@ pub async fn resolve(app: &AppHandle, id: &str) -> Result<DownloadLinks, String>
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let nav_tx = tx.clone();
 
-    let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(page))
+    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(page))
         .title("Verificando — GlassShop")
         .inner_size(560.0, 680.0)
         .decorations(false)
         .focused(false)
-        .position(-4000.0, -4000.0) // off-screen: renders normally, never seen
         .skip_taskbar(true)
-        .visible(true)
         .on_navigation(move |url| {
             if url.path() == "/__hsg_solved" {
                 if let Some((_, value)) = url.query_pairs().find(|(k, _)| k == "u") {
@@ -104,9 +102,21 @@ pub async fn resolve(app: &AppHandle, id: &str) -> Result<DownloadLinks, String>
             }
             true
         })
-        .initialization_script(WATCHER_JS)
-        .build()
-        .map_err(|e| format!("window: {e}"))?;
+        .initialization_script(WATCHER_JS);
+
+    // macOS honours an off-screen position, so the window can stay "visible"
+    // (WebKit throttles hidden ones). Windows and Linux clamp windows back on
+    // screen, so there it has to be created hidden instead.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.position(-4000.0, -4000.0).visible(true);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        builder = builder.visible(false);
+    }
+
+    let window = builder.build().map_err(|e| format!("window: {e}"))?;
 
     // Reveal the window only if the silent pass hasn't solved it in time — the
     // same 6 s grace period the Electron build used.

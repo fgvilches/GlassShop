@@ -13,9 +13,22 @@
   <div class="aurora" aria-hidden="true"></div>
 
   <div id="app" class="app">
+    <!-- window controls: only shown on platforms without native decorations -->
+    <div class="win-controls hidden" id="win-controls">
+      <button class="win-btn" id="win-min" aria-label="Minimizar ventana">
+        <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M0 5h10" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+      <button class="win-btn" id="win-max" aria-label="Maximizar ventana">
+        <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><rect x="0.7" y="0.7" width="8.6" height="8.6" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+      <button class="win-btn close" id="win-close" aria-label="Cerrar ventana">
+        <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+    </div>
+
     <!-- ══ Sidebar ══ -->
     <aside class="sidebar glass">
-      <div class="sidebar-header">
+      <div class="sidebar-header" data-tauri-drag-region>
         <div class="logo-badge" aria-hidden="true"><img src="assets/hshop-logo.svg" alt=""></div>
         <div>
           <h1 class="app-title">Glass<span>Shop</span></h1>
