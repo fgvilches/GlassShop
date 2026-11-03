@@ -42,6 +42,17 @@ npm test           # parser unit tests
 npm run test:live  # parser tests against the live site
 ```
 
+## Icons
+
+`assets/icon-source.png` is the 1024 px master and every platform icon is derived from it:
+
+```bash
+rsvg-convert -w 1024 -h 1024 -o assets/icon-source.png assets/hshop-logo.svg
+npx tauri icon assets/icon-source.png -o src-tauri/icons
+```
+
+Render the SVG with `rsvg-convert` (librsvg), **not** ImageMagick's built-in SVG renderer: that one ignores the gradients and hands back a black square, which then ends up baked into every `.icns` and `.ico`.
+
 ## Project structure
 
 ```
