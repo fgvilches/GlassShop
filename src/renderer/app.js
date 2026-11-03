@@ -14,7 +14,11 @@ const state = {
   titlesTotal: null,
   titlesOffset: 0,
   sort: '', direction: 'desc',
-  search: { q: '', qt: 'Text', results: [], total: null, offset: 0 },
+  search: {
+    q: '', qt: 'Text', results: [], total: null, offset: 0,
+    filters: { include: [], exclude: [], type: 'none', sort: 'none', order: 'none' },
+  },
+  subcats: {},
   sheet: { open: false, title: null },
   pendingBaseFirst: null,
   updates: { available: [] },
@@ -199,7 +203,19 @@ async function doSearch(more = false) {
   if (!more) { state.search.results = []; state.search.offset = 0; state.search.total = null; }
   $('#search-grid').innerHTML = state.search.results.length ? '' : '<div class="dl-empty">Buscando…</div>';
   try {
-    const res = await window.hshop.search({ query: q, qt: state.search.qt, count: 50, offset: state.search.offset });
+    const f = state.search.filters;
+    const res = await window.hshop.search({
+      query: q,
+      qt: state.search.qt,
+      count: 50,
+      offset: state.search.offset,
+      include: f.include.join(','),
+      exclude: f.exclude.join(','),
+      contentType: f.type,
+      sortBy: f.sort,
+      direction: f.order,
+    });
+    if (res && res.error) throw new Error(res.error);
     state.search.results.push(...res.titles);
     state.search.total = res.total;
     state.search.offset += res.titles.length;
@@ -212,6 +228,142 @@ async function doSearch(more = false) {
   } catch (e) {
     $('#search-grid').innerHTML = `<div class="dl-empty">Error: ${esc(e.message || String(e))}</div>`;
   }
+}
+
+// ── filtros de búsqueda ───────────────────────────────────────────────────────
+function filterLabel(path) {
+  const [cat, sub] = String(path).split('.');
+  const c = (state.categories || []).find((x) => x.id === cat);
+  const catName = c ? c.name : cat;
+  if (!sub || sub === '*') return catName;
+  const subs = state.subcats[cat] || [];
+  const s = subs.find((x) => x.id === sub);
+  return `${catName} › ${s ? s.name : sub}`;
+}
+
+function renderFilterChips() {
+  const f = state.search.filters;
+  const all = [
+    ...f.include.map((p) => ['include', p]),
+    ...f.exclude.map((p) => ['exclude', p]),
+  ];
+
+  const paint = (host, interactive) => {
+    if (!host) return;
+    host.innerHTML = '';
+    host.classList.toggle('hidden', all.length === 0);
+    for (const [mode, path] of all) {
+      const chip = document.createElement('span');
+      chip.className = `filter-chip${mode === 'exclude' ? ' exclude' : ''}`;
+      const text = document.createElement('span');
+      text.textContent = `${mode === 'exclude' ? '≠ ' : ''}${filterLabel(path)}`;
+      chip.appendChild(text);
+      if (interactive) {
+        const x = document.createElement('button');
+        x.type = 'button';
+        x.textContent = '✕';
+        x.setAttribute('aria-label', `Quitar filtro ${filterLabel(path)}`);
+        x.addEventListener('click', () => {
+          const list = f[mode];
+          const i = list.indexOf(path);
+          if (i >= 0) list.splice(i, 1);
+          renderFilterChips();
+        });
+        chip.appendChild(x);
+      }
+      host.appendChild(chip);
+    }
+  };
+
+  paint($('#filter-chips'), true);
+  paint($('#active-chips'), false);
+
+  const count = all.length;
+  const badge = $('#filter-count');
+  if (badge) {
+    badge.textContent = String(count);
+    badge.classList.toggle('hidden', count === 0);
+  }
+  const empty = $('#filter-empty');
+  if (empty) empty.classList.toggle('hidden', count > 0);
+}
+
+async function fillSubcategories(catId) {
+  const sel = $('#filter-sub');
+  if (!sel) return;
+  sel.innerHTML = '<option value="none">Todas</option>';
+  if (!catId || catId === 'none') return;
+  if (!state.subcats[catId]) {
+    const subs = await window.hshop.subcategories(catId);
+    state.subcats[catId] = Array.isArray(subs) ? subs : [];
+  }
+  for (const s of state.subcats[catId]) {
+    const o = document.createElement('option');
+    o.value = s.id;
+    o.textContent = s.name || s.id;
+    sel.appendChild(o);
+  }
+}
+
+async function openFilters() {
+  const catSel = $('#filter-cat');
+  if (catSel.options.length <= 1) {
+    for (const c of state.categories || []) {
+      const o = document.createElement('option');
+      o.value = c.id;
+      o.textContent = c.name;
+      catSel.appendChild(o);
+    }
+  }
+  if (state.currentCategory && catSel.value === 'none') catSel.value = state.currentCategory;
+  await fillSubcategories(catSel.value);
+
+  const f = state.search.filters;
+  $('#filter-type').value = f.type;
+  $('#filter-sort').value = f.sort;
+  $('#filter-order').value = f.order;
+  renderFilterChips();
+
+  $('#filters-sheet').classList.remove('hidden');
+  $('#filters-scrim').classList.remove('hidden');
+}
+
+function closeFilters() {
+  $('#filters-sheet').classList.add('hidden');
+  $('#filters-scrim').classList.add('hidden');
+}
+
+function addFilterChip() {
+  const cat = $('#filter-cat').value;
+  const sub = $('#filter-sub').value;
+  const mode = $('#filter-mode').value;
+  if (cat === 'none') { toast('Elige una categoría.', 'err'); return; }
+  const path = sub === 'none' ? `${cat}.*` : `${cat}.${sub}`;
+  const f = state.search.filters;
+  if (f.include.includes(path) || f.exclude.includes(path)) {
+    toast('Ese filtro ya está aplicado.', 'err');
+    return;
+  }
+  f[mode].push(path);
+  renderFilterChips();
+}
+
+function applyFilters() {
+  const f = state.search.filters;
+  f.type = $('#filter-type').value;
+  f.sort = $('#filter-sort').value;
+  f.order = $('#filter-order').value;
+  renderFilterChips();
+  closeFilters();
+  if ($('#search-input').value.trim()) doSearch();
+}
+
+function clearFilters() {
+  state.search.filters = { include: [], exclude: [], type: 'none', sort: 'none', order: 'none' };
+  $('#filter-type').value = 'none';
+  $('#filter-sort').value = 'none';
+  $('#filter-order').value = 'none';
+  renderFilterChips();
 }
 
 // ── detail sheet ──────────────────────────────────────────────────────────────
@@ -369,7 +521,7 @@ function renderUpdates() {
       <div class="dl-info">
         <p class="dl-name">${esc(u.name)}</p>
         <p class="dl-meta">
-          <span>${esc(u.currentVersion)} → ${esc(u.availableVersion)}</span>
+          <span>${u.currentVersion ? `${esc(u.currentVersion)} → ` : 'sin update en disco → '}${esc(u.availableVersion)}</span>
         </p>
       </div>
       <div class="dl-actions">
@@ -483,6 +635,15 @@ function wire() {
   $('#search-form').addEventListener('submit', (ev) => { ev.preventDefault(); doSearch(); });
   $('#search-more').addEventListener('click', () => doSearch(true));
 
+  // filters modal
+  $('#open-filters')?.addEventListener('click', openFilters);
+  $('#filters-close')?.addEventListener('click', closeFilters);
+  $('#filters-scrim')?.addEventListener('click', closeFilters);
+  $('#filter-cat')?.addEventListener('change', (e) => fillSubcategories(e.target.value));
+  $('#filter-add')?.addEventListener('click', addFilterChip);
+  $('#filter-clear')?.addEventListener('click', clearFilters);
+  $('#filter-apply')?.addEventListener('click', applyFilters);
+
   // sheet
   $('#sheet-close').addEventListener('click', closeSheet);
   $('#sheet-scrim').addEventListener('click', closeSheet);
@@ -491,7 +652,9 @@ function wire() {
   });
   $('#sheet-download').addEventListener('click', startDownloadFromSheet);
   document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape' && state.sheet.open) closeSheet();
+    if (ev.key !== 'Escape') return;
+    if (!$('#filters-sheet')?.classList.contains('hidden')) { closeFilters(); return; }
+    if (state.sheet.open) closeSheet();
   });
 
   // downloads toolbar

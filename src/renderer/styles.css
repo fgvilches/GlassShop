@@ -509,6 +509,34 @@ body.darwin .app { -webkit-app-region: no-drag; }
 body.borderless .page-head { padding-right: 110px; }
 body.borderless .sidebar { padding-top: 8px; }
 
+/* ── search filters ────────────────────────────────────────────────────────── */
+.filter-btn { position: relative; white-space: nowrap; }
+.filter-count {
+  display: inline-grid; place-items: center; min-width: 16px; height: 16px;
+  margin-left: 6px; padding: 0 4px; border-radius: var(--r-pill);
+  background: var(--c-tertiary); color: #04121A;
+  font-size: 10.5px; font-weight: 700;
+}
+.filter-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 4px; }
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 6px 4px 10px; border-radius: var(--r-pill);
+  background: var(--c-glass); border: 1px solid var(--c-glass-stroke);
+  font-size: 12px; color: var(--c-primary);
+}
+.filter-chip.exclude { border-color: #FF5C7A66; color: #FFC0CB; }
+.filter-chip button {
+  border: 0; background: transparent; color: inherit; cursor: pointer;
+  font-size: 13px; line-height: 1; padding: 0 2px; opacity: 0.7;
+}
+.filter-chip button:hover { opacity: 1; }
+.filter-grid {
+  display: grid; grid-template-columns: 130px 1fr; gap: 10px 14px;
+  align-items: center;
+}
+.filter-inline { display: flex; gap: 8px; }
+.filter-inline .glass-select { flex: 1; }
+
 /* scrollbars */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #FFFFFF24; border-radius: var(--r-pill); border: 3px solid transparent; background-clip: padding-box; }

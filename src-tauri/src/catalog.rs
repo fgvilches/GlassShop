@@ -121,6 +121,16 @@ pub struct SearchQuery {
     pub qt: Option<String>,
     pub count: Option<i64>,
     pub offset: Option<i64>,
+    /// include filters, `category.subcategory` joined by commas (site param `i`)
+    pub include: Option<String>,
+    /// exclude filters, same format (site param `e`)
+    pub exclude: Option<String>,
+    /// content legitimacy: standard | legit | piratelegit (site param `p`)
+    pub content_type: Option<String>,
+    /// sort field (site param `sb`)
+    pub sort_by: Option<String>,
+    /// ascending | descending (site param `sd`)
+    pub direction: Option<String>,
 }
 
 pub fn categories() -> Vec<Category> {
@@ -479,32 +489,95 @@ pub async fn fetch_titles(q: &TitlesQuery) -> Result<TitlePage, String> {
 }
 
 pub async fn search_titles(q: &SearchQuery) -> Result<TitlePage, String> {
-    let query_text = q.query.clone().unwrap_or_default();
-    let qt = q.qt.clone().unwrap_or_else(|| "Text".into());
     let count = q.count.unwrap_or(50).clamp(1, 100);
     let offset = q.offset.unwrap_or(0).max(0);
-
-    let mut params = vec![
-        ("q".to_string(), query_text.clone()),
-        ("qt".to_string(), qt),
-    ];
-    if offset > 0 || count != 50 {
-        params.push(("count".into(), count.to_string()));
-        params.push(("offset".into(), offset.to_string()));
-    }
-    let query: Vec<String> = params
-        .iter()
-        .map(|(k, v)| format!("{k}={}", urlencode(v)))
-        .collect();
-    let url = format!("{BASE}/search/results?{}", query.join("&"));
-
+    let url = build_search_url(q);
     let html = fetch_text(&url).await?;
+
     Ok(TitlePage {
         titles: parse_title_rows(&html),
         total: parse_showing(&html).map(|(_, _, total)| total),
         offset,
         count,
     })
+}
+
+/// Builds the `/search/results` URL. Parameters mirror the site's own advanced
+/// search: `q`, `qt`, `i` (include filters), `e` (exclude filters), `p`
+/// (content type), `sb` (sort by) and `sd` (direction).
+pub fn build_search_url(q: &SearchQuery) -> String {
+    let query_text = q.query.clone().unwrap_or_default();
+    let qt = q.qt.clone().unwrap_or_else(|| "Text".into());
+    let count = q.count.unwrap_or(50).clamp(1, 100);
+    let offset = q.offset.unwrap_or(0).max(0);
+
+    let mut params = vec![
+        ("q".to_string(), urlencode(&query_text)),
+        ("qt".to_string(), urlencode(&qt)),
+    ];
+
+    if offset > 0 || count != 50 {
+        params.push(("count".into(), count.to_string()));
+        params.push(("offset".into(), offset.to_string()));
+    }
+
+    // `i=games.usa,dlc.japan` — dots and commas stay literal, the site splits
+    // them after decoding; text is encoded per component. A whole category is
+    // `games.*` (the site expands `*` to every subcategory).
+    let filter_param = |raw: &str| -> Option<String> {
+        let cleaned: Vec<String> = raw
+            .split(',')
+            .map(|pair| {
+                let trimmed = pair.trim();
+                if trimmed.is_empty() || trimmed == "none" {
+                    return String::new();
+                }
+                if trimmed.contains('.') {
+                    trimmed
+                        .split('.')
+                        .map(|part| urlencode(part.trim()))
+                        .collect::<Vec<_>>()
+                        .join(".")
+                } else {
+                    format!("{}.*", urlencode(trimmed))
+                }
+            })
+            .filter(|pair| !pair.is_empty())
+            .collect();
+        if cleaned.is_empty() {
+            None
+        } else {
+            Some(cleaned.join(","))
+        }
+    };
+
+    if let Some(include) = q.include.as_deref().and_then(filter_param) {
+        params.push(("i".into(), include));
+    }
+    if let Some(exclude) = q.exclude.as_deref().and_then(filter_param) {
+        params.push(("e".into(), exclude));
+    }
+    if let Some(kind) = q.content_type.as_deref() {
+        if kind != "none" && !kind.is_empty() {
+            params.push(("p".into(), urlencode(kind)));
+        }
+    }
+    if let Some(sb) = q.sort_by.as_deref() {
+        if sb != "none" && !sb.is_empty() {
+            params.push(("sb".into(), urlencode(sb)));
+        }
+    }
+    if let Some(sd) = q.direction.as_deref() {
+        if sd != "none" && !sd.is_empty() {
+            params.push(("sd".into(), urlencode(sd)));
+        }
+    }
+
+    let query: Vec<String> = params
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect();
+    format!("{BASE}/search/results?{}", query.join("&"))
 }
 
 pub async fn fetch_title_detail(id: &str) -> Result<TitleDetail, String> {
@@ -621,5 +694,90 @@ mod tests {
             detail.name, detail.sha256, detail.size_text, detail.version
         );
         assert!(!detail.name.is_empty());
+    }
+
+    #[test]
+    fn builds_search_url_with_filters() {
+        let q = SearchQuery {
+            query: Some("zelda".into()),
+            include: Some("games.usa,virtual-console.japan".into()),
+            exclude: Some("themes".into()),
+            content_type: Some("piratelegit".into()),
+            sort_by: Some("size".into()),
+            direction: Some("descending".into()),
+            ..Default::default()
+        };
+        let url = build_search_url(&q);
+        assert!(url.contains("q=zelda"), "{url}");
+        assert!(url.contains("i=games.usa,virtual-console.japan"), "{url}");
+        assert!(url.contains("e=themes"), "{url}");
+        assert!(url.contains("p=piratelegit"), "{url}");
+        assert!(url.contains("sb=size"), "{url}");
+        assert!(url.contains("sd=descending"), "{url}");
+    }
+
+    #[test]
+    fn omits_empty_filters() {
+        let q = SearchQuery {
+            query: Some("mario".into()),
+            include: Some("none".into()),
+            content_type: Some("none".into()),
+            sort_by: Some("none".into()),
+            ..Default::default()
+        };
+        let url = build_search_url(&q);
+        assert!(!url.contains("i="), "{url}");
+        assert!(!url.contains("p="), "{url}");
+        assert!(!url.contains("sb="), "{url}");
+    }
+
+    #[test]
+    #[ignore]
+    fn live_search_respects_filters() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let all = rt
+            .block_on(search_titles(&SearchQuery {
+                query: Some("zelda".into()),
+                ..Default::default()
+            }))
+            .expect("search all");
+        let filtered = rt
+            .block_on(search_titles(&SearchQuery {
+                query: Some("zelda".into()),
+                include: Some("games.north-america".into()),
+                ..Default::default()
+            }))
+            .expect("search filtered");
+        println!("all={:?} filtered={:?}", all.total, filtered.total);
+        assert!(filtered.total.unwrap_or(0) < all.total.unwrap_or(i64::MAX));
+        assert!(filtered
+            .titles
+            .iter()
+            .all(|t| t.category_path.to_lowercase().contains("games")));
+    }
+
+    #[test]
+    #[ignore]
+    fn live_update_code_search() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let page = rt
+            .block_on(search_titles(&SearchQuery {
+                query: Some("CTR-U-AXCE".into()),
+                qt: Some("ProductCode".into()),
+                ..Default::default()
+            }))
+            .expect("search update");
+        let row = page
+            .titles
+            .iter()
+            .find(|t| {
+                t.product_code
+                    .as_deref()
+                    .map(|c| c.eq_ignore_ascii_case("CTR-U-AXCE"))
+                    .unwrap_or(false)
+            })
+            .expect("update row");
+        println!("update entry {} — {} ({:?})", row.id, row.name, row.version);
+        assert!(row.version.is_some());
     }
 }

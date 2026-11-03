@@ -140,8 +140,9 @@ pub fn download_snapshot(manager: State<'_, Manager>) -> Snapshot {
 // ── updates ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn updates_snapshot(checker: State<'_, SharedChecker>) -> Value {
-    checker.snapshot()
+pub fn updates_snapshot(checker: State<'_, SharedChecker>, manager: State<'_, Manager>) -> Value {
+    let dir = std::path::PathBuf::from(manager.settings().download_dir);
+    checker.snapshot(Some(&dir))
 }
 
 #[tauri::command]
@@ -163,7 +164,7 @@ pub async fn updates_check_one(
 
 #[tauri::command]
 pub fn updates_record_installed(checker: State<'_, SharedChecker>, info: RecordPayload) -> Value {
-    checker.record_installed(info);
+    checker.record(info);
     json!({ "ok": true })
 }
 

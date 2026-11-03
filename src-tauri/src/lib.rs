@@ -60,17 +60,49 @@ pub fn run() {
                     else {
                         return;
                     };
+                    let dir = payload
+                        .get("dir")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let filename = payload
+                        .get("filename")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let size = payload.get("size").and_then(|v| v.as_i64());
+
                     let complete_handle = complete_handle.clone();
                     let checker = checker_for_task.clone();
                     tauri::async_runtime::spawn(async move {
-                        if let Ok(detail) = catalog::fetch_title_detail(&id).await {
-                            checker.record_installed(updates::RecordPayload {
-                                id: id.clone(),
-                                name: Some(detail.name.clone()),
-                                title_id: commands::detail_title_id(&detail),
-                                product_code: detail.product_code.clone(),
-                                version: detail.version.clone(),
-                            });
+                        // the page carries the product code and version that
+                        // update detection needs
+                        let detail = catalog::fetch_title_detail(&id).await.ok();
+                        let path = if dir.is_empty() || filename.is_empty() {
+                            String::new()
+                        } else {
+                            std::path::Path::new(&dir)
+                                .join(&filename)
+                                .to_string_lossy()
+                                .to_string()
+                        };
+
+                        checker.record(updates::RecordPayload {
+                            id: id.clone(),
+                            name: detail.as_ref().map(|d| d.name.clone()),
+                            path: Some(path),
+                            title_id: detail.as_ref().and_then(commands::detail_title_id),
+                            product_code: detail.as_ref().and_then(|d| d.product_code.clone()),
+                            version: detail.as_ref().and_then(|d| d.version.clone()),
+                            size,
+                        });
+
+                        // and look for an update right away
+                        let found = checker.check_one(&id).await;
+                        if let Some(info) = found {
+                            let _ = complete_handle.emit("updates:available", json!({
+                                "updates": [info]
+                            }));
                         }
                         let _ = complete_handle.emit("updates:recorded", json!({ "id": id }));
                     });

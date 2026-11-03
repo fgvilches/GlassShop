@@ -18,6 +18,7 @@ Built with **Tauri 2 + Rust**. No Electron, no bundled browser: the UI is a tran
 
 - **Catalog browsing** — categories, subcategories and title lists scraped from the site's server-rendered HTML
 - **Search** by free text, Title ID, Product Code or Unique ID
+- **Search filters** — include or exclude whole categories and regions, filter by content type, and sort; a chip per active filter that can be removed individually
 - **Title sheet** with size, product code, SHA-256, description and a direct site link
 - **Download queue** — configurable concurrency, pause/resume, HTTP `Range` resume, cancel, retry
 - **Streaming SHA-256 verification** against the hash published by hShop
@@ -73,6 +74,14 @@ src/renderer/
   bridge.js         maps `window.hshop` onto Tauri IPC
 assets/             logo source and icon master
 ```
+
+## How update detection works
+
+hShop publishes a game's update as its own entry, and the two are linked by product code: the base game is `CTR-P-AXCE`, its update is `CTR-U-AXCE` (same prefix, same four-character game code, type letter swapped). GlassShop derives that code, searches hShop for it, and reads the version published on the update page.
+
+The list of what you own lives in `library.json` next to the app data, keyed by file path and written when a download completes. **Clearing the download queue does not forget a game**, and because every entry is re-checked against the filesystem, deleting a file drops it from the library again. Files sitting in the folder that were never indexed are reported separately.
+
+That same library answers the "update without its base" question: when you enqueue an update, the base game is looked up **on disk**, not in the download list.
 
 ## How downloads are resolved
 

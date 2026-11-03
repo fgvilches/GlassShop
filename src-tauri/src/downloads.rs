@@ -638,10 +638,26 @@ impl Manager {
                     &self.inner.app,
                     format!("download {id}: finished, {received} bytes"),
                 );
-                let _ = self
-                    .inner
-                    .app
-                    .emit("downloads:completed", serde_json::json!({ "id": id }));
+                // richer payload: the update checker indexes the finished file
+                let payload = {
+                    let items = self.inner.items.read().unwrap();
+                    items
+                        .iter()
+                        .find(|it| it.id == id)
+                        .map(|it| {
+                            serde_json::json!({
+                                "id": it.id,
+                                "name": it.name,
+                                "filename": it.filename,
+                                "dir": it.dir,
+                                "size": it.received,
+                                "sha256": it.sha256,
+                            })
+                        })
+                };
+                if let Some(payload) = payload {
+                    let _ = self.inner.app.emit("downloads:completed", payload);
+                }
             }
             Err(e) => {
                 crate::diag::log(&self.inner.app, format!("download {id}: failed — {e}"));

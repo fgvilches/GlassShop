@@ -135,7 +135,11 @@
             <option value="UniqueID">ID único</option>
           </select>
           <button class="primary-btn" type="submit">Buscar</button>
+          <button class="glass-btn small filter-btn" type="button" id="open-filters">
+            Filtros<span class="filter-count hidden" id="filter-count">0</span>
+          </button>
         </form>
+        <div class="filter-chips hidden" id="active-chips"></div>
         <p class="page-sub hidden" id="search-summary"></p>
         <div class="grid titles-grid" id="search-grid"></div>
         <div class="load-more-wrap hidden" id="search-more-wrap">
@@ -251,6 +255,70 @@
     <footer class="sheet-foot">
       <button class="glass-btn" id="basefirst-skip">Solo este update</button>
       <button class="primary-btn big" id="basefirst-base-first">Juego base + este update</button>
+    </footer>
+  </article>
+
+  <!-- modal: filtros de búsqueda -->
+  <div class="sheet-scrim hidden" id="filters-scrim"></div>
+  <article class="sheet glass hidden" id="filters-sheet" role="dialog" aria-modal="true" aria-labelledby="filters-title">
+    <header class="sheet-head">
+      <div>
+        <p class="sidebar-label">Perfeccionar búsqueda</p>
+        <h2 class="sheet-title" id="filters-title">Filtros</h2>
+      </div>
+      <button class="glass-btn small icon" id="filters-close" aria-label="Cerrar">✕</button>
+    </header>
+    <div class="sheet-body">
+      <div class="filter-grid">
+        <label class="sidebar-label" for="filter-cat">Categoría</label>
+        <select class="glass-select" id="filter-cat"><option value="none">Todas</option></select>
+
+        <label class="sidebar-label" for="filter-sub">Región / subcategoría</label>
+        <select class="glass-select" id="filter-sub"><option value="none">Todas</option></select>
+
+        <label class="sidebar-label" for="filter-mode">Modo</label>
+        <select class="glass-select" id="filter-mode">
+          <option value="include">Incluir</option>
+          <option value="exclude">Excluir</option>
+        </select>
+
+        <span></span>
+        <button class="glass-btn small" id="filter-add">Añadir filtro</button>
+
+        <label class="sidebar-label" for="filter-type">Contenido</label>
+        <select class="glass-select" id="filter-type">
+          <option value="none">Cualquiera</option>
+          <option value="standard">Standard</option>
+          <option value="legit">Legit</option>
+          <option value="piratelegit">Pirate Legit</option>
+        </select>
+
+        <label class="sidebar-label" for="filter-sort">Ordenar por</label>
+        <div class="filter-inline">
+          <select class="glass-select" id="filter-sort">
+            <option value="none">Ninguno</option>
+            <option value="size">Tamaño</option>
+            <option value="name">Nombre</option>
+            <option value="category">Categoría</option>
+            <option value="added_date">Fecha de adición</option>
+            <option value="updated_date">Fecha de edición</option>
+            <option value="downloads">Descargas</option>
+          </select>
+          <select class="glass-select" id="filter-order">
+            <option value="none">—</option>
+            <option value="descending">Desc</option>
+            <option value="ascending">Asc</option>
+          </select>
+        </div>
+      </div>
+
+      <p class="sidebar-label" style="margin-top:16px">Filtros activos</p>
+      <div class="filter-chips" id="filter-chips"></div>
+      <p class="page-sub" id="filter-empty">Ninguno todavía. Elige categoría o región y pulsa “Añadir filtro”.</p>
+    </div>
+    <footer class="sheet-foot">
+      <button class="glass-btn" id="filter-clear">Limpiar todo</button>
+      <button class="primary-btn big" id="filter-apply">Aplicar</button>
     </footer>
   </article>
 
