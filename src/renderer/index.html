@@ -162,7 +162,10 @@
           </div>
         </header>
         <div class="updates-panel glass hidden" id="updates-panel">
-          <h3 class="page-title" style="font-size:15px;margin:0 0 8px">Actualizaciones disponibles</h3>
+          <header class="panel-head">
+            <h3 class="panel-title">Actualizaciones disponibles</h3>
+            <p class="panel-sub" id="updates-sub"></p>
+          </header>
           <div class="updates-list" id="updates-list"></div>
         </div>
         <div class="dl-list" id="dl-list"></div>
@@ -263,6 +266,26 @@
     <footer class="sheet-foot">
       <button class="glass-btn" id="basefirst-skip">Solo este update</button>
       <button class="primary-btn big" id="basefirst-base-first">Juego base + este update</button>
+    </footer>
+  </article>
+
+  <!-- modal: contenido adicional (updates + DLC del mismo juego) -->
+  <div class="sheet-scrim hidden" id="extras-scrim"></div>
+  <article class="sheet glass hidden" id="extras-sheet" role="dialog" aria-modal="true" aria-labelledby="extras-title">
+    <header class="sheet-head">
+      <div>
+        <p class="sidebar-label">Mismo juego, misma región</p>
+        <h2 class="sheet-title" id="extras-title">Hay contenido adicional</h2>
+      </div>
+      <button class="glass-btn small icon" id="extras-close" aria-label="Cerrar">✕</button>
+    </header>
+    <div class="sheet-body">
+      <p id="extras-msg" class="extras-msg"></p>
+      <div class="extras-list" id="extras-list"></div>
+    </div>
+    <footer class="sheet-foot">
+      <button class="glass-btn" id="extras-skip">Ahora no</button>
+      <button class="primary-btn big" id="extras-add">Encolar seleccionados</button>
     </footer>
   </article>
 

@@ -65,6 +65,7 @@
     updatesForget: (titleId) => call('updates_forget', { titleId }),
     updatesBaseFirst: (updateInfo) => call('updates_base_first', { updateInfo }),
     updatesScan: () => call('updates_scan'),
+    updatesExtras: (productCode) => call('updates_extras', { productCode }),
 
     // app
     openExternal: (url) => call('app_open_external', { url }),

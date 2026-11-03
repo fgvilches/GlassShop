@@ -191,6 +191,7 @@ pub fn run() {
             commands::updates_forget,
             commands::updates_base_first,
             commands::updates_scan,
+            commands::updates_extras,
             commands::app_open_external,
             commands::app_pick_dir,
             commands::app_platform,

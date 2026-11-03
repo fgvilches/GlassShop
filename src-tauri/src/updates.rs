@@ -117,6 +117,23 @@ pub struct LibraryEntry {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ExtraItem {
+    /// "update" or "dlc"
+    pub kind: String,
+    pub page_id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub product_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateInfo {
     pub title_id: String,
     pub name: String,
@@ -449,6 +466,71 @@ impl Checker {
         Box::pin(async move { find_base_title(&code).await })
     }
 
+    // ── extras (updates + DLC de la misma familia) ───────────────────────────
+
+    /// Everything hShop publishes for the same game family: its update(s) and
+    /// its DLC. `CTR-P-AXCE` → search `AXCE` → update `CTR-U-AXCE` + DLC
+    /// `CTR-M-AXCE-00`. Entries already on disk are left out.
+    pub async fn find_extras(&self, product_code: &str) -> Vec<ExtraItem> {
+        let Some((_, _, code)) = split_code(product_code) else {
+            return Vec::new();
+        };
+
+        let Ok(page) = catalog::search_titles(&SearchQuery {
+            query: Some(code),
+            qt: Some("ProductCode".into()),
+            count: Some(50),
+            ..Default::default()
+        })
+        .await
+        else {
+            return Vec::new();
+        };
+
+        let on_disk: Vec<String> = self
+            .present()
+            .into_iter()
+            .filter_map(|e| e.product_code)
+            .collect();
+
+        let mut out: Vec<ExtraItem> = Vec::new();
+        for row in page.titles {
+            let Some(pc) = row.product_code.clone() else { continue };
+            let upper = pc.to_ascii_uppercase();
+            let kind = if upper.contains("-U-") {
+                "update"
+            } else if upper.contains("-M-") {
+                "dlc"
+            } else {
+                continue; // base games
+            };
+            if on_disk.iter().any(|c| c.eq_ignore_ascii_case(&pc)) {
+                continue;
+            }
+            if out.iter().any(|e| {
+                e.product_code
+                    .as_deref()
+                    .map(|c| c.eq_ignore_ascii_case(&pc))
+                    .unwrap_or(false)
+            }) {
+                continue;
+            }
+            out.push(ExtraItem {
+                kind: kind.to_string(),
+                page_id: row.id,
+                name: row.name,
+                product_code: Some(pc),
+                version: row.version,
+                size_text: row.size_text,
+                size_bytes: row.size_bytes,
+            });
+        }
+
+        // updates first, then DLC, each by name
+        out.sort_by(|a, b| a.kind.cmp(&b.kind).then(a.name.cmp(&b.name)));
+        out
+    }
+
     // ── folder scan ──────────────────────────────────────────────────────────
 
     /// Indexes files that are in the download folder but not in the library:
@@ -635,5 +717,29 @@ mod tests {
             .as_deref()
             .map(|c| c.eq_ignore_ascii_case("CTR-P-AXCE"))
             .unwrap_or(false));
+    }
+
+    #[test]
+    #[ignore]
+    fn live_family_search_finds_update_and_dlc() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let page = rt
+            .block_on(catalog::search_titles(&SearchQuery {
+                query: Some("AXCE".into()),
+                qt: Some("ProductCode".into()),
+                count: Some(50),
+                ..Default::default()
+            }))
+            .expect("family search");
+
+        let codes: Vec<String> = page
+            .titles
+            .iter()
+            .filter_map(|t| t.product_code.clone())
+            .collect();
+        println!("AXCE family → {:?}", codes);
+
+        assert!(codes.iter().any(|c| c.contains("-U-")), "no update in family");
+        assert!(codes.iter().any(|c| c.contains("-M-")), "no dlc in family");
     }
 }

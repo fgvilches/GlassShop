@@ -291,18 +291,44 @@ function renderFilterChips() {
 async function fillSubcategories(catId) {
   const sel = $('#filter-sub');
   if (!sel) return;
-  sel.innerHTML = '<option value="none">Todas</option>';
-  if (!catId || catId === 'none') return;
-  if (!state.subcats[catId]) {
-    const subs = await window.hshop.subcategories(catId);
-    state.subcats[catId] = Array.isArray(subs) ? subs : [];
+
+  const keep = sel.value;
+  sel.innerHTML = '<option value="none">Todas las regiones</option>';
+
+  if (!catId || catId === 'none') {
+    sel.disabled = true;
+    return;
   }
+  sel.disabled = false;
+
+  if (!state.subcats[catId]) {
+    sel.innerHTML = '<option value="none">Cargando regiones…</option>';
+    let subs = null;
+    try {
+      subs = await window.hshop.subcategories(catId);
+    } catch (e) {
+      subs = { error: e.message || String(e) };
+    }
+    if (!Array.isArray(subs)) {
+      const why = (subs && subs.error) || 'respuesta inesperada';
+      sel.innerHTML = `<option value="none">No se pudieron cargar (${esc(String(why)).slice(0, 60)})</option>`;
+      return;
+    }
+    state.subcats[catId] = subs;
+  }
+
+  sel.innerHTML = '<option value="none">Todas las regiones</option>';
   for (const s of state.subcats[catId]) {
     const o = document.createElement('option');
     o.value = s.id;
     o.textContent = s.name || s.id;
     sel.appendChild(o);
   }
+  // a category with no subcategories still needs a usable state
+  if (!state.subcats[catId].length) {
+    sel.innerHTML = '<option value="none">Esta categoría no tiene regiones</option>';
+  }
+  if (keep && keep !== 'none') sel.value = keep;
 }
 
 async function openFilters() {
@@ -315,7 +341,11 @@ async function openFilters() {
       catSel.appendChild(o);
     }
   }
-  if (state.currentCategory && catSel.value === 'none') catSel.value = state.currentCategory;
+  if (state.currentCategory && state.currentCategory !== 'none' && catSel.value === 'none') {
+    catSel.value = state.currentCategory;
+  }
+  // the region list only makes sense with a category chosen — default to games
+  if (catSel.value === 'none') catSel.value = 'games';
   await fillSubcategories(catSel.value);
 
   const f = state.search.filters;
@@ -440,6 +470,8 @@ async function startDownloadFromSheet() {
       toast(`Añadido a descargas: ${t.name}`, 'ok');
       closeSheet();
       show('downloads');
+      // if hShop publishes an update or DLC for this game, offer them
+      maybeExtras(pc, t.name);
     } catch (e) {
       toast(`No se pudo iniciar: ${e.message || e}`, 'err');
     } finally {
@@ -538,11 +570,17 @@ function renderUpdates() {
   const list = $('#updates-list');
   const { available } = state.updates;
   panel.classList.toggle('hidden', available.length === 0);
+  const sub = $('#updates-sub');
+  if (sub) {
+    sub.textContent = available.length
+      ? `${available.length} pendiente${available.length === 1 ? '' : 's'} para los juegos de tu biblioteca`
+      : '';
+  }
   if (!available.length) return;
   list.innerHTML = '';
   for (const u of available) {
     const el = document.createElement('div');
-    el.className = 'dl-row glass';
+    el.className = 'update-row';
     el.innerHTML = `
       <div class="dl-info">
         <p class="dl-name">${esc(u.name)}</p>
@@ -560,6 +598,98 @@ function renderUpdates() {
     });
     list.appendChild(el);
   }
+}
+
+// ── contenido adicional (updates + DLC de la misma familia) ─────────────────
+async function maybeExtras(productCode, gameName) {
+  if (!productCode || !/^[A-Za-z]{3}-[A-Za-z]-/i.test(productCode)) return;
+  if (/^[A-Za-z]{3}-U-/i.test(productCode)) return; // an update: no extras of itself
+
+  let items = [];
+  try {
+    items = await window.hshop.updatesExtras(productCode);
+  } catch {
+    return;
+  }
+  if (!Array.isArray(items) || !items.length) return;
+
+  state.pendingExtras = items;
+  const updates = items.filter((i) => i.kind === 'update');
+  const dlc = items.filter((i) => i.kind === 'dlc');
+
+  $('#extras-title').textContent = `Contenido adicional de ${gameName}`;
+  const bits = [];
+  if (updates.length) bits.push(`${updates.length} actualizaci${updates.length === 1 ? 'ón' : 'ones'}`);
+  if (dlc.length) bits.push(`${dlc.length} DLC`);
+  $('#extras-msg').textContent =
+    `hShop publica ${bits.join(' y ')} para la misma región. Elige qué quieres encolar junto al juego.`;
+
+  $('#extras-list').innerHTML = items
+    .map(
+      (it, i) => `
+      <label class="extras-item">
+        <input type="checkbox" class="extras-check" data-idx="${i}" checked />
+        <span class="extras-body">
+          <span class="extras-name">${esc(it.name)}</span>
+          <span class="extras-meta">
+            <span class="extras-kind ${it.kind}">${it.kind === 'update' ? 'Update' : 'DLC'}</span>
+            ${it.version ? `<span>v${esc(it.version)}</span>` : ''}
+            ${it.sizeText ? `<span>${esc(it.sizeText)}</span>` : ''}
+            ${it.productCode ? `<span class="mono">${esc(it.productCode)}</span>` : ''}
+          </span>
+        </span>
+      </label>`,
+    )
+    .join('');
+
+  $('#extras-scrim').classList.remove('hidden');
+  $('#extras-sheet').classList.remove('hidden');
+  syncExtrasButton();
+}
+
+function syncExtrasButton() {
+  const btn = $('#extras-add');
+  if (!btn) return;
+  const n = document.querySelectorAll('.extras-check:checked').length;
+  btn.disabled = n === 0;
+  btn.textContent = n === 0 ? 'Nada seleccionado' : `Encolar ${n} seleccionado${n === 1 ? '' : 's'}`;
+}
+
+function closeExtras() {
+  $('#extras-scrim').classList.add('hidden');
+  $('#extras-sheet').classList.add('hidden');
+  state.pendingExtras = null;
+}
+
+async function enqueueExtras() {
+  const items = state.pendingExtras || [];
+  const picks = [...document.querySelectorAll('.extras-check:checked')]
+    .map((el) => items[Number(el.dataset.idx)])
+    .filter(Boolean);
+  closeExtras();
+  if (!picks.length) return;
+
+  let ok = 0;
+  for (const it of picks) {
+    try {
+      const links = await window.hshop.resolveDownload(it.pageId);
+      if (!links || links.error || !links.direct) {
+        throw new Error((links && links.error) || 'sin enlace');
+      }
+      const res = await window.hshop.addDownload({
+        id: it.pageId,
+        name: it.name,
+        filename: `${it.name}.cia`,
+        url: links.direct,
+        sizeBytes: it.sizeBytes || null,
+      });
+      if (res && res.error) throw new Error(res.error);
+      ok += 1;
+    } catch (e) {
+      toast(`No se pudo agregar ${it.name}: ${e.message || e}`, 'err');
+    }
+  }
+  if (ok) toast(`${ok} agregado${ok === 1 ? '' : 's'} a descargas`, 'ok');
 }
 
 // ── base-first (update sin juego base) ───────────────────────────────────────
@@ -775,9 +905,35 @@ function wire() {
   $('#pause-all').addEventListener('click', () => window.hshop.pauseAll());
   $('#resume-all').addEventListener('click', () => window.hshop.resumeAll());
   $('#clear-completed').addEventListener('click', () => window.hshop.clearCompleted());
-  $('#check-updates').addEventListener('click', async () => {
-    await window.hshop.updatesCheck();
+  $('#check-updates').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    const restore = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Buscando…';
+    try {
+      const list = await window.hshop.updatesCheck();
+      state.updates.available = Array.isArray(list) ? list : [];
+      renderUpdates();
+      const n = state.updates.available.length;
+      toast(
+        n ? `${n} actualizaci${n === 1 ? 'ón' : 'ones'} disponible${n === 1 ? '' : 's'}`
+          : 'No hay actualizaciones nuevas para tu biblioteca',
+        'ok',
+      );
+    } catch (e) {
+      toast(`No se pudieron buscar actualizaciones: ${e.message || e}`, 'err');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = restore;
+    }
   });
+
+  // extras modal (updates + DLC del mismo juego)
+  $('#extras-close')?.addEventListener('click', closeExtras);
+  $('#extras-skip')?.addEventListener('click', closeExtras);
+  $('#extras-scrim')?.addEventListener('click', closeExtras);
+  $('#extras-list')?.addEventListener('change', syncExtrasButton);
+  $('#extras-add')?.addEventListener('click', enqueueExtras);
 
   // base-first modal
   $('#basefirst-close').addEventListener('click', closeBaseFirst);

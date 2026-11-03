@@ -182,6 +182,15 @@ pub async fn updates_base_first(
     Ok(checker.resolve_base_first(&update_info).await)
 }
 
+/// Updates and DLC published for the same game family (same region).
+#[tauri::command]
+pub async fn updates_extras(
+    checker: State<'_, SharedChecker>,
+    product_code: String,
+) -> Result<Value, String> {
+    Ok(json!(checker.find_extras(&product_code).await))
+}
+
 /// Indexes files sitting in the download folder that were never recorded, then
 /// re-runs the update sweep so those titles get checked too.
 #[tauri::command]
