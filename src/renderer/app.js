@@ -1136,19 +1136,54 @@ async function setupWindowChrome() {
   const bar = $('#win-controls');
   if (bar) bar.classList.remove('hidden');
 
-  // drag anywhere on a page header's empty space
-  document.querySelectorAll('.page-head, .sidebar-header').forEach((el) =>
-    el.setAttribute('data-tauri-drag-region', ''));
-
   $('#win-min')?.addEventListener('click', () => window.hshop.minimize());
   $('#win-max')?.addEventListener('click', () => window.hshop.toggleMaximize());
   $('#win-close')?.addEventListener('click', () => window.hshop.closeWindow());
+}
+
+// drag regions: Tauri's data-tauri-drag-region is unreliable on macOS with
+// transparent windows, so we drive it explicitly via startDragging. Runs on
+// every platform (the header/sidebar are the draggable areas everywhere).
+function setupDragRegions() {
+  const isInteractive = (el) =>
+    !!el && !!el.closest && !!el.closest('button, a, input, select, textarea, [role="button"]');
+
+  const startDrag = async (ev) => {
+    if (ev.button !== 0) return;
+    if (isInteractive(ev.target)) return;
+    ev.preventDefault();
+    try {
+      const tauri = window.__TAURI__ || {};
+      const win =
+        (tauri.window && typeof tauri.window.getCurrentWindow === 'function')
+          ? tauri.window.getCurrentWindow()
+          : (tauri.webviewWindow && typeof tauri.webviewWindow.getCurrentWebviewWindow === 'function')
+            ? tauri.webviewWindow.getCurrentWebviewWindow()
+            : null;
+      if (win && typeof win.startDragging === 'function') {
+        await win.startDragging();
+        return;
+      }
+      // last resort: invoke the core command directly
+      if (tauri.core && typeof tauri.core.invoke === 'function') {
+        await tauri.core.invoke('plugin:window|start_dragging').catch(() => {});
+      }
+    } catch (e) {
+      // fall back to the attribute-based mechanism (already in place)
+    }
+  };
+
+  document.querySelectorAll('.sidebar-header, .page-head').forEach((el) => {
+    el.addEventListener('mousedown', startDrag);
+    el.setAttribute('data-tauri-drag-region', '');
+  });
 }
 
 // ── boot ───────────────────────────────────────────────────────────────────────
 async function boot() {
   wire();
   await setupWindowChrome();
+  setupDragRegions();
   state.updates = { available: [] };
   // expose a small dir picker through preload if available
   try {
