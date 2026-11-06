@@ -1,7 +1,7 @@
 {
   "name": "glassshop",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Native Liquid Glass download manager for hShop — macOS, Windows and Linux.",
   "license": "MIT",
   "scripts": {
