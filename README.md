@@ -16,7 +16,9 @@ Built with **Tauri 2 + Rust**. No Electron, no bundled browser: the UI is a tran
 
 ## Screenshots
 
-![GlassShop main window](screenshots/app-main.png)
+| Buscar | Descargas |
+|---|---|
+| ![Search view](screenshots/app-search.png) | ![Downloads view](screenshots/app-downloads.png) |
 
 ## Features
 
